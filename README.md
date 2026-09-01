@@ -8,6 +8,9 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
 
 ## How it works
 
+- **Help** — a guide to all of this pops up automatically the moment the
+  page loads, and a small (?) button in the top-right corner reopens it
+  anytime afterward.
 - **Frame corners** — the bounding box of 4 points: right-hand thumb tip
   (landmark 4), right-hand index tip (8), left-hand thumb tip (4), and
   left-hand index tip (8). The rectangle is just the min/max x and y among
@@ -268,6 +271,12 @@ photo strip + auto-save are all fully implemented:
   `photobooth-photo-<timestamp>-<width>x<height>.png` — confirmed the
   aspect-lock math and that the actual download's filename/dimensions
   match what was typed, by intercepting the real download click
+- `HelpModal` opens once automatically during `init()` (before the
+  webcam/hand-tracker even finish loading) and gates `mainLoop` the same
+  way the other modals do — an early-return before any hand-detection or
+  capture logic runs, confirmed `CaptureState.phase` never advances while
+  it's open. The (?) button and a click on the dimmed backdrop both call
+  the same `close()`
 
 Not yet built: gesture/pose validation (right now the rectangle shows
 whenever both hands are simply detected, not specifically when fingers
@@ -320,7 +329,7 @@ draw with your hands the same way you framed the shots), or both — with
 
 ## Files
 
-- `index.html` — page structure: full-screen mirrored webcam video, overlay canvas, status bar, photo strip, style label, custom-size save modal, round-complete save-choice modal
-- `style.css` — full-bleed layout, styling, the photobooth-strip look, the style label, the slot save button, and both modals
+- `index.html` — page structure: full-screen mirrored webcam video, overlay canvas, status bar, photo strip, style label, help button + guide modal, custom-size save modal, round-complete save-choice modal
+- `style.css` — full-bleed layout, styling, the photobooth-strip look, the style label, the help button/modal, the slot save button, and the other modals
 - `script.js` — webcam init, canvas setup, MediaPipe hand tracking, the viewfinder/style-presets/strip-crop-guide/capture/photo-strip logic, the `SizePicker` custom-size save modal, and the `RoundCompleteModal` save-choice modal
 - `assets/scrapbook-overlay.png` — the decorative stars/sparkles overlay used by the Star Scrapbook style

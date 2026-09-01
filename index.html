@@ -9,7 +9,7 @@
        time script.js/style.css change, or returning visitors' browsers
        can silently keep serving an old cached copy for up to 10 minutes
        (or longer, depending on the browser) after a new deploy. -->
-  <link rel="stylesheet" href="style.css?v=5" />
+  <link rel="stylesheet" href="style.css?v=6" />
 </head>
 <body>
   <video id="webcam-video" autoplay muted playsinline></video>
@@ -27,6 +27,38 @@
        (not just while framing) so you know what's selected before you
        start. -->
   <div id="style-label" aria-live="polite">Vintage B&amp;W</div>
+
+  <!-- Help: opens automatically on page load, and can be reopened anytime
+       via the (?) button. -->
+  <button id="help-button" type="button" title="How to use photobooth" aria-label="Help">?</button>
+
+  <div id="help-overlay" class="modal-overlay" hidden>
+    <div class="modal-card help-card">
+      <h3>How to Use Photobooth</h3>
+      <ol class="help-steps">
+        <li>Hold up <strong>both hands</strong>, thumb and index fingertip
+          on each sketching a rectangle — a glowing frame appears live,
+          matching where you hold your hands.</li>
+        <li>Pinch your <strong>LEFT</strong> thumb and index together
+          (one quick pinch) to cycle styles: Vintage B&amp;W, Sepia,
+          Vibrant Pop, Star Scrapbook. The current one shows at the
+          bottom of the screen.</li>
+        <li>Pinch your <strong>RIGHT</strong> thumb and index together
+          and <strong>hold for a second</strong> to lock the frame and
+          start a 4-second countdown. A photo captures automatically at
+          zero, in whatever style is active.</li>
+        <li>Each photo fills the strip on the left. Click the small
+          save icon on any photo to download just that one at a custom
+          size.</li>
+        <li>After 4 photos, choose how to save the round: the combined
+          strip, all 4 individually (square, or a size you draw with
+          your hands), or both.</li>
+      </ol>
+      <div class="modal-actions">
+        <button id="help-close" type="button" class="btn-primary">Got it</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Custom-size save: opened by the small save button on any filled strip
        slot. Lets you download that one photo resized to whatever width/
@@ -93,6 +125,6 @@
        without needing to complete a pinch. -->
   <button id="size-gesture-cancel" type="button" class="btn-secondary size-gesture-cancel-btn" hidden>Cancel</button>
 
-  <script src="script.js?v=5" type="module"></script>
+  <script src="script.js?v=6" type="module"></script>
 </body>
 </html>

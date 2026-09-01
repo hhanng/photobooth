@@ -94,6 +94,58 @@ html, body {
   pointer-events: none;
 }
 
+/* Help button -- always on top (above any modal backdrop) so it's
+   reachable to reopen the guide at any time. */
+#help-button {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 50;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  backdrop-filter: blur(6px);
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#help-button:hover {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.help-card {
+  width: min(400px, 90vw);
+}
+
+.help-steps {
+  margin: 0 0 1rem;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.help-steps li {
+  margin-bottom: 0.7rem;
+}
+
+.help-steps li:last-child {
+  margin-bottom: 0;
+}
+
+.help-steps strong {
+  color: var(--ok);
+}
+
 .status-pill.ok {
   color: var(--ok);
   border-color: var(--ok);

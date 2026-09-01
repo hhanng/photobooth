@@ -1151,6 +1151,38 @@ function drawSizeGestureInstructions() {
 }
 // -------------------------------------------------------------------------
 
+// --- Help ------------------------------------------------------------------
+// Opens automatically once on page load, and can be reopened anytime via
+// the (?) button -- gates mainLoop the same way the other modals do, so
+// nothing can be tracked/triggered underneath it.
+const HelpModal = {
+  isOpen: false,
+  overlayEl: null,
+
+  init() {
+    this.overlayEl = document.getElementById("help-overlay");
+    document.getElementById("help-button").addEventListener("click", () => this.open());
+    document.getElementById("help-close").addEventListener("click", () => this.close());
+    // Click on the dimmed backdrop (not the card itself) also closes --
+    // safe here since, unlike the round-complete modal, there's nothing
+    // this could accidentally discard.
+    this.overlayEl.addEventListener("click", (e) => {
+      if (e.target === this.overlayEl) this.close();
+    });
+  },
+
+  open() {
+    this.isOpen = true;
+    this.overlayEl.hidden = false;
+  },
+
+  close() {
+    this.isOpen = false;
+    this.overlayEl.hidden = true;
+  },
+};
+// -------------------------------------------------------------------------
+
 function setStatus(elementId, label, state) {
   const el = document.getElementById(elementId);
   el.textContent = label;
@@ -1161,6 +1193,13 @@ function setStatus(elementId, label, state) {
 function mainLoop(nowMs) {
   Canvas.clear();
   grainFrameCounter++;
+
+  if (HelpModal.isOpen) {
+    // Nothing to track/draw underneath the guide -- and pausing here
+    // means no gesture can be mid-registration when it opens or closes.
+    requestAnimationFrame(mainLoop);
+    return;
+  }
 
   const video = Webcam.videoEl;
   const hands = video && video.readyState >= 2 && video.videoWidth ? HandTracker.detect(video, nowMs) : [];
@@ -1284,6 +1323,8 @@ async function init() {
   PhotoStrip.init();
   SizePicker.init();
   RoundCompleteModal.init();
+  HelpModal.init();
+  HelpModal.open();
   await Promise.all([Webcam.init(), HandTracker.init()]);
   requestAnimationFrame(mainLoop);
 }
