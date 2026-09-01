@@ -18,6 +18,33 @@
 
   <div id="photo-strip" aria-label="Photo strip"></div>
 
+  <!-- Custom-size save: opened by the small save button on any filled strip
+       slot. Lets you download that one photo resized to whatever width/
+       height you choose, independent of the strip's fixed square slots. -->
+  <div id="size-picker-overlay" class="modal-overlay" hidden>
+    <div class="modal-card">
+      <h3>Save Photo</h3>
+      <img id="size-picker-preview" class="size-picker-preview" alt="Photo preview" />
+      <div class="size-picker-row">
+        <label>Width
+          <input id="size-picker-width" type="number" min="16" max="4000" step="1" />
+        </label>
+        <span class="size-picker-x">×</span>
+        <label>Height
+          <input id="size-picker-height" type="number" min="16" max="4000" step="1" />
+        </label>
+      </div>
+      <label class="size-picker-lock">
+        <input id="size-picker-lock" type="checkbox" checked />
+        Keep aspect ratio
+      </label>
+      <div class="modal-actions">
+        <button id="size-picker-cancel" type="button" class="btn-secondary">Cancel</button>
+        <button id="size-picker-save" type="button" class="btn-primary">Save PNG</button>
+      </div>
+    </div>
+  </div>
+
   <script src="script.js" type="module"></script>
 </body>
 </html>

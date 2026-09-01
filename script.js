@@ -43,11 +43,21 @@ const STRIP_GUIDE_LINE_WIDTH = 1.5;
 const STRIP_GUIDE_DASH = [8, 6];
 // -------------------------------------------------------------------------
 
-// --- Capture gesture (right-hand pinch) + countdown/flash --------------
+// --- Capture gesture (right-hand pinch, held) + countdown/flash ---------
 // Pinch distance is measured in VIDEO PIXEL space (not normalized, not
 // canvas space) -- same approach/threshold ballpark as condensate's pinch
 // detection, so a "pinch" means the same physical thing across projects.
-const PINCH_DISTANCE_THRESHOLD_PX = 42;
+// Two thresholds (hysteresis), not one: once a pinch starts, the fingers
+// have to move noticeably farther apart (past the larger EXIT distance)
+// before it counts as released, so ordinary landmark jitter right at one
+// fixed boundary can't flicker the state and reset the hold timer.
+const PINCH_ENTER_THRESHOLD_PX = 42;
+const PINCH_EXIT_THRESHOLD_PX = 58;
+// The pinch has to be held continuously for this long before it triggers
+// the countdown -- a single-frame "distance < threshold" trigger can't
+// tell a deliberate pinch apart from thumb and index briefly grazing each
+// other during normal hand motion; requiring a real hold filters that out.
+const PINCH_HOLD_MS = 1000;
 const COUNTDOWN_SECONDS = 4;
 const COUNTDOWN_POP_DURATION_S = 0.25; // each number eases in from a larger scale over this long
 const FLASH_DURATION_MS = 300;
@@ -227,21 +237,30 @@ const CaptureState = {
   lockedRect: null, // { x, y, w, h } in canvas space, frozen for the whole countdown
   countdownStartMs: null,
   flashStartMs: null,
-  wasPinching: false, // for rising-edge (single-trigger) pinch detection
+  pinchStartMs: null, // when the current continuous pinch began, or null if not currently pinching
 };
 
 // In-memory captured photos -- { canvas, dataUrl, width, height, timestamp }.
 const capturedPhotos = [];
 
 // Same distance-in-video-pixel-space approach as condensate's pinch
-// detection: thumb (4) and index (8) tip coming within
-// PINCH_DISTANCE_THRESHOLD_PX of each other, on the RIGHT hand only.
-function isPinching(hand, videoW, videoH) {
+// detection: thumb (4) and index (8) tip coming within the enter/exit
+// threshold of each other, on the RIGHT hand only.
+function isPinching(hand, videoW, videoH, wasPinching) {
   const thumb = hand.landmarks[THUMB_TIP];
   const index = hand.landmarks[INDEX_TIP];
   const dxPx = (thumb.x - index.x) * videoW;
   const dyPx = (thumb.y - index.y) * videoH;
-  return Math.hypot(dxPx, dyPx) <= PINCH_DISTANCE_THRESHOLD_PX;
+  const distPx = Math.hypot(dxPx, dyPx);
+  return distPx <= (wasPinching ? PINCH_EXIT_THRESHOLD_PX : PINCH_ENTER_THRESHOLD_PX);
+}
+
+// Midpoint between thumb and index tip, in normalized video coordinates --
+// where the pinch-hold progress ring gets drawn.
+function pinchMidpoint(hand) {
+  const thumb = hand.landmarks[THUMB_TIP];
+  const index = hand.landmarks[INDEX_TIP];
+  return { x: (thumb.x + index.x) / 2, y: (thumb.y + index.y) / 2 };
 }
 
 function startCountdown(x, y, w, h, nowMs) {
@@ -343,6 +362,62 @@ function drawFrameOutline(x, y, w, h) {
   ctx.restore();
 }
 
+// Draws a dashed square guide, centered inside the given rectangle, at the
+// size the strip's "cover" crop will actually keep (a square of side
+// min(w, h) -- see drawStripSlotImage). Skipped once the rectangle is
+// already square, since the guide would just retrace the main frame's own
+// edges.
+function drawStripCropGuide(x, y, w, h) {
+  if (Math.abs(w - h) < 1) return;
+  const side = Math.min(w, h);
+  const gx = x + (w - side) / 2;
+  const gy = y + (h - side) / 2;
+
+  const ctx = Canvas.ctx;
+  ctx.save();
+  ctx.strokeStyle = STRIP_GUIDE_COLOR;
+  ctx.globalAlpha = STRIP_GUIDE_ALPHA;
+  ctx.lineWidth = STRIP_GUIDE_LINE_WIDTH;
+  ctx.setLineDash(STRIP_GUIDE_DASH);
+  ctx.strokeRect(gx, gy, side, side);
+  ctx.setLineDash([]);
+
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = STRIP_GUIDE_COLOR;
+  ctx.font = `600 ${Math.max(10, Math.min(14, side * 0.06))}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.textBaseline = "top";
+  ctx.fillText("strip crop", gx + 6, gy + 6);
+  ctx.restore();
+}
+
+const PINCH_PROGRESS_RADIUS = 20;
+const PINCH_PROGRESS_COLOR = "rgb(255, 214, 130)";
+
+// Small radial progress ring centered on the pinch point while a hold is in
+// progress -- gives feedback that the pinch is registering and roughly how
+// much longer it needs to be held, instead of silence until it suddenly
+// fires at the 1-second mark.
+function drawPinchHoldProgress(canvasPoint, progress) {
+  const ctx = Canvas.ctx;
+  ctx.save();
+  ctx.translate(canvasPoint.x, canvasPoint.y);
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 0, PINCH_PROGRESS_RADIUS, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = PINCH_PROGRESS_COLOR;
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.arc(0, 0, PINCH_PROGRESS_RADIUS, -Math.PI / 2, -Math.PI / 2 + clamp(progress, 0, 1) * Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 let grainFrameCounter = 0;
 
 // Draws the vintage black-and-white preview INSIDE the given canvas-space
@@ -391,6 +466,7 @@ function drawVintageFrame(rectX, rectY, rectW, rectH, video, videoW, videoH) {
   ctx.restore();
 
   drawFrameOutline(rectX, rectY, rectW, rectH);
+  drawStripCropGuide(rectX, rectY, rectW, rectH);
 }
 
 // Draws the large "4-3-2-1" countdown number centered in the (locked)
@@ -566,6 +642,17 @@ const PhotoStrip = {
     img.src = photo.dataUrl;
     slot.appendChild(img);
 
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "slot-save-btn";
+    saveBtn.title = "Save this photo at a custom size";
+    saveBtn.textContent = "⤓"; // downwards arrow to bar
+    saveBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      SizePicker.open(photo);
+    });
+    slot.appendChild(saveBtn);
+
     if (this.photos.length === STRIP_SLOT_COUNT) {
       composeAndDownloadStrip(this.photos);
       this.reset();
@@ -660,6 +747,79 @@ function composeAndDownloadStrip(photos) {
 }
 // -------------------------------------------------------------------------
 
+// --- Per-photo custom-size save -------------------------------------------
+// Opened from the small save button on any filled strip slot. Lets the
+// user download that one photo resized to whatever width/height they
+// choose -- independent of the strip's fixed square slots -- prefilled
+// with the photo's own dimensions, with an optional aspect-ratio lock so
+// adjusting one field keeps the other in proportion.
+const SizePicker = {
+  overlayEl: null,
+  previewEl: null,
+  widthEl: null,
+  heightEl: null,
+  lockEl: null,
+  photo: null,
+  aspectRatio: 1,
+
+  init() {
+    this.overlayEl = document.getElementById("size-picker-overlay");
+    this.previewEl = document.getElementById("size-picker-preview");
+    this.widthEl = document.getElementById("size-picker-width");
+    this.heightEl = document.getElementById("size-picker-height");
+    this.lockEl = document.getElementById("size-picker-lock");
+
+    this.widthEl.addEventListener("input", () => {
+      if (!this.lockEl.checked) return;
+      const w = parseInt(this.widthEl.value, 10);
+      if (w > 0) this.heightEl.value = Math.max(1, Math.round(w / this.aspectRatio));
+    });
+    this.heightEl.addEventListener("input", () => {
+      if (!this.lockEl.checked) return;
+      const h = parseInt(this.heightEl.value, 10);
+      if (h > 0) this.widthEl.value = Math.max(1, Math.round(h * this.aspectRatio));
+    });
+
+    document.getElementById("size-picker-cancel").addEventListener("click", () => this.close());
+    document.getElementById("size-picker-save").addEventListener("click", () => this.save());
+    // Click on the dimmed backdrop (not the card itself) also cancels.
+    this.overlayEl.addEventListener("click", (e) => {
+      if (e.target === this.overlayEl) this.close();
+    });
+  },
+
+  open(photo) {
+    this.photo = photo;
+    this.aspectRatio = photo.width / photo.height;
+    this.previewEl.src = photo.dataUrl;
+    this.widthEl.value = photo.width;
+    this.heightEl.value = photo.height;
+    this.lockEl.checked = true;
+    this.overlayEl.hidden = false;
+  },
+
+  close() {
+    this.overlayEl.hidden = true;
+    this.photo = null;
+  },
+
+  save() {
+    if (!this.photo) return;
+    const width = Math.max(1, parseInt(this.widthEl.value, 10) || this.photo.width);
+    const height = Math.max(1, parseInt(this.heightEl.value, 10) || this.photo.height);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(this.photo.canvas, 0, 0, width, height);
+
+    downloadCanvasAsPng(canvas, `photobooth-photo-${this.photo.timestamp}-${width}x${height}.png`);
+    this.close();
+  },
+};
+// -------------------------------------------------------------------------
+
 function setStatus(elementId, label, state) {
   const el = document.getElementById(elementId);
   el.textContent = label;
@@ -702,18 +862,33 @@ function mainLoop(nowMs) {
 
       drawVintageFrame(minX, minY, rectW, rectH, video, videoW, videoH);
 
-      // Pinch is a single trigger (rising edge only), not "while held",
-      // and only arms the countdown if there's a real rectangle to lock.
-      const pinching = isPinching(rightHand, videoW, videoH);
-      if (pinching && !CaptureState.wasPinching && rectW >= MIN_FRAME_SIZE && rectH >= MIN_FRAME_SIZE) {
-        startCountdown(minX, minY, rectW, rectH, nowMs);
+      // The pinch has to be HELD continuously for PINCH_HOLD_MS before it
+      // triggers the countdown -- a single close-enough frame isn't
+      // enough, so a brief accidental thumb/index graze during normal
+      // hand motion can't fire a capture by itself.
+      const pinching = isPinching(rightHand, videoW, videoH, CaptureState.pinchStartMs !== null);
+      if (pinching && rectW >= MIN_FRAME_SIZE && rectH >= MIN_FRAME_SIZE) {
+        if (CaptureState.pinchStartMs === null) CaptureState.pinchStartMs = nowMs;
+        const heldMs = nowMs - CaptureState.pinchStartMs;
+        if (heldMs >= PINCH_HOLD_MS) {
+          startCountdown(minX, minY, rectW, rectH, nowMs);
+          CaptureState.pinchStartMs = null;
+        } else {
+          const mid = pinchMidpoint(rightHand);
+          const midCanvas = mapVideoToCanvas(mid.x, mid.y, videoW, videoH, Canvas.width, Canvas.height);
+          drawPinchHoldProgress(midCanvas, heldMs / PINCH_HOLD_MS);
+        }
+      } else {
+        // Any break -- fingers moving apart, or the rectangle not being
+        // big enough yet -- resets the hold; it has to be one continuous
+        // pinch, not several short ones added together.
+        CaptureState.pinchStartMs = null;
       }
-      CaptureState.wasPinching = pinching;
     } else {
       // Reset so the rectangle snaps to the raw position next time both
       // hands appear, instead of smoothing in from wherever it was left.
       FrameSmoothingState.points = null;
-      CaptureState.wasPinching = false;
+      CaptureState.pinchStartMs = null;
     }
   } else if (CaptureState.phase === "countdown") {
     // Locked: geometry is frozen, but the video feed inside it stays
@@ -735,10 +910,10 @@ function mainLoop(nowMs) {
     if (nowMs - CaptureState.flashStartMs >= FLASH_DURATION_MS) {
       CaptureState.phase = "idle";
       CaptureState.lockedRect = null;
-      // Assume still-pinching until proven otherwise next idle frame, so
-      // a pinch held all the way through the countdown can't immediately
-      // re-trigger a second capture the instant we unlock.
-      CaptureState.wasPinching = true;
+      // pinchStartMs is untouched by countdown/flash (only the idle branch
+      // reads/writes it), so even if the original pinch is still being
+      // held through the whole cycle, the next idle frame starts timing a
+      // brand new hold from scratch -- it can't immediately re-trigger.
     }
   }
 
@@ -749,6 +924,7 @@ async function init() {
   Canvas.init();
   initGrain();
   PhotoStrip.init();
+  SizePicker.init();
   await Promise.all([Webcam.init(), HandTracker.init()]);
   requestAnimationFrame(mainLoop);
 }
