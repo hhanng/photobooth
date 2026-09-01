@@ -4,7 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>photobooth</title>
-  <link rel="stylesheet" href="style.css" />
+  <!-- Cache-busting ?v= query on script/style: GitHub Pages serves these
+       with cache-control: max-age=600, so bump this version string any
+       time script.js/style.css change, or returning visitors' browsers
+       can silently keep serving an old cached copy for up to 10 minutes
+       (or longer, depending on the browser) after a new deploy. -->
+  <link rel="stylesheet" href="style.css?v=2" />
 </head>
 <body>
   <video id="webcam-video" autoplay muted playsinline></video>
@@ -45,6 +50,6 @@
     </div>
   </div>
 
-  <script src="script.js" type="module"></script>
+  <script src="script.js?v=2" type="module"></script>
 </body>
 </html>
