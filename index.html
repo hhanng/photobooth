@@ -9,7 +9,7 @@
        time script.js/style.css change, or returning visitors' browsers
        can silently keep serving an old cached copy for up to 10 minutes
        (or longer, depending on the browser) after a new deploy. -->
-  <link rel="stylesheet" href="style.css?v=4" />
+  <link rel="stylesheet" href="style.css?v=5" />
 </head>
 <body>
   <video id="webcam-video" autoplay muted playsinline></video>
@@ -22,6 +22,11 @@
   </div>
 
   <div id="photo-strip" aria-label="Photo strip"></div>
+
+  <!-- Current style name -- cycled by a left-hand pinch. Always visible
+       (not just while framing) so you know what's selected before you
+       start. -->
+  <div id="style-label" aria-live="polite">Vintage B&amp;W</div>
 
   <!-- Custom-size save: opened by the small save button on any filled strip
        slot. Lets you download that one photo resized to whatever width/
@@ -88,6 +93,6 @@
        without needing to complete a pinch. -->
   <button id="size-gesture-cancel" type="button" class="btn-secondary size-gesture-cancel-btn" hidden>Cancel</button>
 
-  <script src="script.js?v=4" type="module"></script>
+  <script src="script.js?v=5" type="module"></script>
 </body>
 </html>

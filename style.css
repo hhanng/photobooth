@@ -75,6 +75,25 @@ html, body {
   color: var(--text);
 }
 
+/* Active style name -- cycled by a left-hand pinch. Small and unobtrusive,
+   bottom-center, out of the way of the frame/countdown/skip UI above it. */
+#style-label {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.6);
+  border: 1px solid var(--border);
+  color: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
 .status-pill.ok {
   color: var(--ok);
   border-color: var(--ok);

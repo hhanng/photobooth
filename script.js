@@ -63,20 +63,115 @@ const COUNTDOWN_POP_DURATION_S = 0.25; // each number eases in from a larger sca
 const FLASH_DURATION_MS = 300;
 // -------------------------------------------------------------------------
 
-// --- Vintage filter + film grain --------------------------------------
-// ctx.filter accepts a CSS filter-function string, applied to whatever is
-// drawn next -- desaturate most of the way, add a touch of warm sepia
-// tint, boost contrast a little, and lift brightness slightly so the
-// crop doesn't just look "dark and drab".
-const VINTAGE_FILTER = "grayscale(0.9) sepia(0.2) contrast(1.15) brightness(1.03)";
+// --- Style presets + film grain ------------------------------------------
+// Each style is a CSS ctx.filter string plus optional extras (grain, a
+// decorative overlay image) applied to the video feed inside the frame
+// rectangle. Cycled by a left-hand pinch (see StyleState below); the
+// active one renders live in the viewfinder and is exactly what
+// capturePhoto() bakes into the saved photo.
+const STYLES = [
+  {
+    name: "Vintage B&W",
+    // Desaturate most of the way, a touch of warm sepia tint, a little
+    // more contrast, and slightly lifted brightness so it doesn't read
+    // as just "dark and drab".
+    filter: "grayscale(0.9) sepia(0.2) contrast(1.15) brightness(1.03)",
+    grain: true,
+    overlaySrc: null,
+  },
+  {
+    name: "Sepia",
+    // Fully desaturate first, then a strong sepia tint -- warmer and
+    // browner than Vintage B&W, no grain (grain reads as "old photo",
+    // sepia here is more "warm keepsake tone").
+    filter: "grayscale(1) sepia(0.85) contrast(1.05) brightness(1.02)",
+    grain: false,
+    overlaySrc: null,
+  },
+  {
+    name: "Vibrant Pop",
+    // The opposite direction entirely: boosted saturation + contrast for
+    // punchy, vivid color, no desaturation/tinting at all.
+    filter: "saturate(1.9) contrast(1.25) brightness(1.05)",
+    grain: false,
+    overlaySrc: null,
+  },
+  {
+    name: "Star Scrapbook",
+    // Vintage B&W as the base look, then the decorative overlay gets
+    // composited on top in drawStylePostProcessing -- the overlay image
+    // itself already has all the stars/sparkles positioned with a clear
+    // center, so no runtime placement logic is needed here.
+    filter: "grayscale(0.9) sepia(0.2) contrast(1.15) brightness(1.03)",
+    grain: true,
+    overlaySrc: "assets/scrapbook-overlay.png",
+  },
+];
+
+// Loaded once at startup, keyed by overlaySrc -- see preloadStyleOverlays().
+const styleOverlayImages = {};
+
+function preloadStyleOverlays() {
+  for (const style of STYLES) {
+    if (!style.overlaySrc || styleOverlayImages[style.overlaySrc]) continue;
+    const img = new Image();
+    img.src = style.overlaySrc;
+    styleOverlayImages[style.overlaySrc] = img;
+  }
+}
 
 // Grain: a handful of pre-rendered static noise tiles (built once, not
 // per-frame) cycled every few frames for a subtle flicker, blended with
-// "overlay" at low alpha over the vintage crop.
+// "overlay" at low alpha over the filtered crop.
 const GRAIN_TILE_SIZE = 128;
 const GRAIN_TILE_COUNT = 3;
 const GRAIN_ALPHA = 0.08;
 const GRAIN_CYCLE_FRAMES = 4;
+
+// Cycled by a left-hand pinch, single-trigger (rising edge, not held) --
+// deliberately the opposite of the right hand's pinch-and-hold, so the
+// two gestures feel distinct and can't be confused for one another.
+const StyleState = {
+  index: 0,
+  leftWasPinching: false,
+};
+
+function cycleStyle() {
+  StyleState.index = (StyleState.index + 1) % STYLES.length;
+  updateStyleLabel();
+}
+
+function updateStyleLabel() {
+  const el = document.getElementById("style-label");
+  if (el) el.textContent = STYLES[StyleState.index].name;
+}
+
+// Draws a style's grain (if any) and decorative overlay (if any) on top of
+// an already-filtered photo draw, at the given destination rect -- shared
+// between the live preview (a clipped region of the shared canvas) and
+// capturePhoto (its own small canvas), so the two stay pixel-for-pixel
+// consistent.
+function drawStylePostProcessing(ctx, style, x, y, w, h) {
+  if (style.grain) {
+    const tile = grainTiles[Math.floor(grainFrameCounter / GRAIN_CYCLE_FRAMES) % grainTiles.length];
+    ctx.filter = "none";
+    ctx.globalAlpha = GRAIN_ALPHA;
+    ctx.globalCompositeOperation = "overlay";
+    ctx.drawImage(tile, x, y, w, h);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+  }
+  if (style.overlaySrc) {
+    const img = styleOverlayImages[style.overlaySrc];
+    if (img && img.complete && img.naturalWidth > 0) {
+      ctx.filter = "none";
+      // Stretched to exactly match the destination rect -- the overlay
+      // asset is already composed with a clear center at its own aspect
+      // ratio, so this simply scales the whole decorated border to fit.
+      ctx.drawImage(img, x, y, w, h);
+    }
+  }
+}
 // -------------------------------------------------------------------------
 
 // --- Photo strip + auto-save --------------------------------------------
@@ -420,14 +515,15 @@ function drawPinchHoldProgress(canvasPoint, progress) {
 
 let grainFrameCounter = 0;
 
-// Draws the vintage black-and-white preview INSIDE the given canvas-space
-// rectangle only (clipped), by cropping the matching region straight out
-// of the live video, then the glowing frame outline around it. Outside
-// the rectangle, the canvas stays untouched/transparent, so the normal
-// color video shows through unaffected.
-function drawVintageFrame(rectX, rectY, rectW, rectH, video, videoW, videoH) {
+// Draws the active style's preview INSIDE the given canvas-space rectangle
+// only (clipped), by cropping the matching region straight out of the live
+// video, then the glowing frame outline around it. Outside the rectangle,
+// the canvas stays untouched/transparent, so the normal color video shows
+// through unaffected.
+function drawStyledFrame(rectX, rectY, rectW, rectH, video, videoW, videoH) {
   if (rectW < MIN_FRAME_SIZE || rectH < MIN_FRAME_SIZE) return;
   const ctx = Canvas.ctx;
+  const style = STYLES[StyleState.index];
 
   // Find the matching source rectangle in the video's own pixel space
   // (mapCanvasToVideo already accounts for the mirror, so a plain bounding
@@ -450,18 +546,12 @@ function drawVintageFrame(rectX, rectY, rectW, rectH, video, videoW, videoH) {
   ctx.save();
   ctx.translate(rectX + rectW, rectY);
   ctx.scale(-1, 1);
-  ctx.filter = VINTAGE_FILTER;
+  ctx.filter = style.filter;
   ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, rectW, rectH);
   ctx.restore();
 
-  // Film grain overlay, still within the same clip.
-  ctx.filter = "none";
-  const tile = grainTiles[Math.floor(grainFrameCounter / GRAIN_CYCLE_FRAMES) % grainTiles.length];
-  ctx.globalAlpha = GRAIN_ALPHA;
-  ctx.globalCompositeOperation = "overlay";
-  ctx.drawImage(tile, rectX, rectY, rectW, rectH);
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = "source-over";
+  // Grain / decorative overlay, still within the same clip.
+  drawStylePostProcessing(ctx, style, rectX, rectY, rectW, rectH);
 
   ctx.restore();
 
@@ -530,6 +620,11 @@ function logCapturedPhoto(photo) {
 // rectangle's own pixel size with the same vintage filter + grain, and
 // stores it in `capturedPhotos`.
 function capturePhoto(video, videoW, videoH, rectX, rectY, rectW, rectH) {
+  // Whatever style is active right now -- at the moment the countdown
+  // actually reaches zero -- is what gets baked in, so cycling styles
+  // during the countdown (if the user changes their mind) still applies.
+  const style = STYLES[StyleState.index];
+
   const c1 = mapCanvasToVideo(rectX, rectY, videoW, videoH, Canvas.width, Canvas.height);
   const c2 = mapCanvasToVideo(rectX + rectW, rectY + rectH, videoW, videoH, Canvas.width, Canvas.height);
   const srcX = Math.min(c1.x, c2.x);
@@ -547,17 +642,11 @@ function capturePhoto(video, videoW, videoH, rectX, rectY, rectW, rectH) {
   pctx.save();
   pctx.translate(outW, 0);
   pctx.scale(-1, 1);
-  pctx.filter = VINTAGE_FILTER;
+  pctx.filter = style.filter;
   pctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
   pctx.restore();
 
-  pctx.filter = "none";
-  const tile = grainTiles[Math.floor(grainFrameCounter / GRAIN_CYCLE_FRAMES) % grainTiles.length];
-  pctx.globalAlpha = GRAIN_ALPHA;
-  pctx.globalCompositeOperation = "overlay";
-  pctx.drawImage(tile, 0, 0, outW, outH);
-  pctx.globalAlpha = 1;
-  pctx.globalCompositeOperation = "source-over";
+  drawStylePostProcessing(pctx, style, 0, 0, outW, outH);
 
   const photo = {
     canvas: photoCanvas,
@@ -565,6 +654,7 @@ function capturePhoto(video, videoW, videoH, rectX, rectY, rectW, rectH) {
     width: outW,
     height: outH,
     timestamp: Date.now(),
+    styleName: style.name,
   };
   capturedPhotos.push(photo);
   logCapturedPhoto(photo);
@@ -1114,7 +1204,7 @@ function mainLoop(nowMs) {
       const rectW = maxX - minX;
       const rectH = maxY - minY;
 
-      drawVintageFrame(minX, minY, rectW, rectH, video, videoW, videoH);
+      drawStyledFrame(minX, minY, rectW, rectH, video, videoW, videoH);
 
       // The pinch has to be HELD continuously for PINCH_HOLD_MS before it
       // triggers the countdown -- a single close-enough frame isn't
@@ -1138,17 +1228,29 @@ function mainLoop(nowMs) {
         // pinch, not several short ones added together.
         CaptureState.pinchStartMs = null;
       }
+
+      // Left-hand pinch cycles the style -- single-trigger on the rising
+      // edge (not held), the opposite of the right hand's pinch-and-hold,
+      // so the two gestures can't be mistaken for each other and track
+      // fully independently (separate hand, separate state, separate
+      // trigger condition).
+      const leftPinching = isPinching(leftHand, videoW, videoH, StyleState.leftWasPinching);
+      if (leftPinching && !StyleState.leftWasPinching) {
+        cycleStyle();
+      }
+      StyleState.leftWasPinching = leftPinching;
     } else {
       // Reset so the rectangle snaps to the raw position next time both
       // hands appear, instead of smoothing in from wherever it was left.
       FrameSmoothingState.points = null;
       CaptureState.pinchStartMs = null;
+      StyleState.leftWasPinching = false;
     }
   } else if (CaptureState.phase === "countdown") {
     // Locked: geometry is frozen, but the video feed inside it stays
     // live -- hands are free to move or leave frame entirely.
     const { x, y, w, h } = CaptureState.lockedRect;
-    drawVintageFrame(x, y, w, h, video, videoW, videoH);
+    drawStyledFrame(x, y, w, h, video, videoW, videoH);
     drawCountdownNumber(x, y, w, h, nowMs);
 
     if (nowMs - CaptureState.countdownStartMs >= COUNTDOWN_SECONDS * 1000) {
@@ -1158,7 +1260,7 @@ function mainLoop(nowMs) {
     }
   } else if (CaptureState.phase === "flash") {
     const { x, y, w, h } = CaptureState.lockedRect;
-    drawVintageFrame(x, y, w, h, video, videoW, videoH);
+    drawStyledFrame(x, y, w, h, video, videoW, videoH);
     drawFlash(nowMs - CaptureState.flashStartMs);
 
     if (nowMs - CaptureState.flashStartMs >= FLASH_DURATION_MS) {
@@ -1177,6 +1279,8 @@ function mainLoop(nowMs) {
 async function init() {
   Canvas.init();
   initGrain();
+  preloadStyleOverlays();
+  updateStyleLabel();
   PhotoStrip.init();
   SizePicker.init();
   RoundCompleteModal.init();

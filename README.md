@@ -3,8 +3,8 @@
 A webcam photobooth controlled entirely by hand gestures. Hold both hands
 up in a "director's frame" — thumb and index finger tips on each hand
 sketching out a rectangle — and a glowing viewfinder frame appears live on
-screen, with a vintage black-and-white preview inside it, while the rest
-of the (color) video stays normal.
+screen, with a styled preview inside it (4 looks to choose from, cycled
+with a left-hand pinch), while the rest of the (color) video stays normal.
 
 ## How it works
 
@@ -20,10 +20,21 @@ of the (color) video stays normal.
   exactly with the eventual strip photo, so you can see while framing
   whether something important is about to get cropped off, instead of
   finding out after the shot.
-- **Vintage crop** — only the video *inside* that rectangle is
-  desaturated, given a warm sepia tint, boosted in contrast, and given a
-  bit of film grain — the video outside the rectangle is untouched, full
-  color.
+- **Styled crop** — only the video *inside* that rectangle gets the active
+  style's treatment — the video outside the rectangle is untouched, full
+  color. Four styles, cycled with a **LEFT-hand pinch** (thumb tip
+  touching index tip, one quick pinch — not held, the opposite of the
+  right hand's capture gesture): **Vintage B&W** (the default — mostly
+  desaturated, warm sepia tint, a little more contrast, subtle film
+  grain), **Sepia** (fully desaturated then a strong warm-brown tint, no
+  grain), **Vibrant Pop** (boosted saturation and contrast for punchy,
+  vivid color, no desaturation at all), and **Star Scrapbook** (the
+  Vintage B&W look as a base, with a decorative overlay of stars and
+  sparkles composited on top — the overlay has a clear center and all its
+  decoration near the edges, so it frames a photo without covering the
+  subject). The current style's name shows in a small pill at the bottom
+  of the screen, and applies live in the viewfinder so you can see it
+  before you shoot.
 - **Capture** — pinch your RIGHT hand's thumb and index tip together and
   *hold* the pinch for a full second (a small progress ring appears at the
   pinch point so you can see it registering) to lock the frame in place
@@ -33,8 +44,10 @@ of the (color) video stays normal.
   accidentally firing a capture; letting go early (past a slightly more
   forgiving release distance, so tiny tracking jitter doesn't cancel a
   genuine hold) resets the timer, so it has to be one deliberate,
-  continuous pinch. At zero, a photo is captured (cropped + vintage-
-  filtered, same as the live preview), a shutter flash fires, and the
+  continuous pinch. At zero, a photo is captured (cropped + styled, same
+  as the live preview — whatever style is active *right at that instant*
+  is what gets baked in, so you can keep cycling styles during the
+  countdown if you change your mind), a shutter flash fires, and the
   frame unlocks — ready to pinch-and-hold again for the next shot.
 - **Photo strip** — a classic cream photobooth strip, docked flush to the
   left edge, running the full height of the screen (straight, no tilt)
@@ -93,12 +106,47 @@ photo strip + auto-save are all fully implemented:
   reads as smoothed rather than laggy. Resets to a hard snap (no smoothing
   in from a stale position) whenever both hands stop being detected and
   then reappear
-- The vintage crop is drawn by `ctx.drawImage`-ing the matching region of
+- The styled crop is drawn by `ctx.drawImage`-ing the matching region of
   the *raw* video (mapped back from canvas space to video pixel space via
   the inverse of the mirror/`object-fit: cover` math) straight onto the
-  effects canvas, clipped to the rectangle, with `ctx.filter =
-  "grayscale(0.9) sepia(0.2) contrast(1.15) brightness(1.03)"` — cheap,
-  no manual per-pixel processing
+  effects canvas, clipped to the rectangle, with `ctx.filter` set to the
+  active style's CSS filter-function string — cheap, no manual per-pixel
+  processing
+- The 4 styles (`STYLES`, near the top of `script.js`) are each just a
+  filter string plus optional `grain`/`overlaySrc` flags: **Vintage B&W**
+  (`grayscale(0.9) sepia(0.2) contrast(1.15) brightness(1.03)`, grain on),
+  **Sepia** (`grayscale(1) sepia(0.85) contrast(1.05) brightness(1.02)`,
+  no grain), **Vibrant Pop** (`saturate(1.9) contrast(1.25)
+  brightness(1.05)`, no grain, no desaturation at all), and **Star
+  Scrapbook** (Vintage B&W's exact filter, plus `overlaySrc:
+  "assets/scrapbook-overlay.png"`). `drawStylePostProcessing()` applies
+  the grain and/or overlay and is shared byte-for-byte between the live
+  preview and `capturePhoto()`, so the two always match exactly
+- A left-hand pinch cycles `StyleState.index` through `STYLES`, wrapping
+  after the last one — single-trigger on the rising edge (`isPinching`
+  with hysteresis, same function the right hand's capture pinch uses, just
+  called on the other hand with its own independent `leftWasPinching`
+  state) rather than held, so it can't be confused with the right hand's
+  pinch-and-hold. Verified by replaying both hands' pinch logic together
+  against controlled synthetic distances: the style advances exactly once
+  per left pinch (not again while held), a right-hand pinch starting or
+  ending has zero effect on the style index, and a left-hand pinch
+  starting or ending has zero effect on the right hand's hold timer —
+  each hand's gesture is entirely independent of the other's
+- The scrapbook overlay (`assets/scrapbook-overlay.png`, a 1080×1080 PNG
+  with stars/sparkles scattered near the edges and a clear transparent
+  center) is preloaded once at startup (`preloadStyleOverlays()`) and, for
+  Star Scrapbook, drawn stretched to exactly the destination rect's
+  width/height — no runtime placement logic, since the asset is already
+  composed. Verified by capturing the same synthetic photo as both Vintage
+  B&W and Star Scrapbook and diffing every pixel: ~2.9% differ (matching
+  the overlay's sparse edge decoration), and the two match exactly at the
+  center point, confirming the "clear center" claim in practice, not just
+  by looking at the source image
+- The active style's name shows in a small pill at the bottom of the
+  screen (`#style-label`, updated by `updateStyleLabel()` on every cycle
+  and once at startup) and is always visible, not just while framing, so
+  you know what's selected before you even hold your hands up
 - Since the crop is drawn fresh (not just borrowed from the already-
   mirrored `<video>` element), it gets its own small horizontal flip
   scoped to just that draw, so it matches the mirrored orientation of the
@@ -254,11 +302,14 @@ python3 -m http.server 8000
 Then open the printed local URL (e.g. `http://localhost:3000` or
 `http://localhost:8000`) in a browser, grant camera access when prompted,
 and hold both hands up with your thumb and index fingertips out — you'll
-see a glowing rectangle appear between them, vintage black-and-white
-inside, normal color outside, plus a smaller dashed gold square marking
-the actual strip crop. Pinch your right hand's thumb and index together
-and hold for a full second (watch the small progress ring at the pinch
-point) to lock it in and start the 4-second countdown; open the console
+see a glowing rectangle appear between them, styled inside, normal color
+outside, plus a smaller dashed gold square marking the actual strip crop.
+Pinch your LEFT hand's thumb and index together (one quick pinch) to
+cycle through the 4 styles — Vintage B&W, Sepia, Vibrant Pop, Star
+Scrapbook — watching the name change at the bottom of the screen and the
+preview update live. Pinch your RIGHT hand's thumb and index together and
+hold for a full second (watch the small progress ring at the pinch point)
+to lock it in and start the 4-second countdown; open the console
 beforehand to see each captured photo logged with a thumbnail. You can
 click the small save button on any filled slot to download just that one
 photo at a custom size along the way. Repeat 4 times to fill the strip
@@ -269,6 +320,7 @@ draw with your hands the same way you framed the shots), or both — with
 
 ## Files
 
-- `index.html` — page structure: full-screen mirrored webcam video, overlay canvas, status bar, photo strip, custom-size save modal, round-complete save-choice modal
-- `style.css` — full-bleed layout, styling, the photobooth-strip look, the slot save button, and both modals
-- `script.js` — webcam init, canvas setup, MediaPipe hand tracking, the viewfinder/vintage-crop/grain/strip-crop-guide/capture/photo-strip logic, the `SizePicker` custom-size save modal, and the `RoundCompleteModal` save-choice modal
+- `index.html` — page structure: full-screen mirrored webcam video, overlay canvas, status bar, photo strip, style label, custom-size save modal, round-complete save-choice modal
+- `style.css` — full-bleed layout, styling, the photobooth-strip look, the style label, the slot save button, and both modals
+- `script.js` — webcam init, canvas setup, MediaPipe hand tracking, the viewfinder/style-presets/strip-crop-guide/capture/photo-strip logic, the `SizePicker` custom-size save modal, and the `RoundCompleteModal` save-choice modal
+- `assets/scrapbook-overlay.png` — the decorative stars/sparkles overlay used by the Star Scrapbook style
