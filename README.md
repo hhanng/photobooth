@@ -23,36 +23,20 @@ of the (color) video stays normal.
   countdown. At zero, a photo is captured (cropped + vintage-filtered,
   same as the live preview), a shutter flash fires, and the frame unlocks
   — ready to pinch again for the next shot.
-- **Sliding puzzle mini-game** — every photo has to be "unlocked" before it
-  joins the strip. Right after capture, the shot is shown full-size,
-  centered, for about a second, then it's split into a classic 3×3 sliding
-  puzzle (9 tiles, 1 blank), shuffled into a random *solvable*
-  arrangement (see below). Slide tiles with your RIGHT hand's open palm:
-  hover it over a tile next to the blank to grab it, then move the palm
-  toward the blank to slide the tile along that one axis — it snaps into
-  place once you've dragged it far enough; closing your hand or drifting
-  too far off-axis cancels the drag. Solve the puzzle (or hit the Skip
-  button — see below) and the photo drops into the next open strip slot.
-- **Skip button** — a circular button, bottom-center, that sends the
-  *original, unpuzzled* photo straight to the strip. Click it directly,
-  or hover an index fingertip (either hand) over it for 1.5 uninterrupted
-  seconds — a radial ring fills in as visual feedback, and moving the
-  fingertip away resets the timer.
 - **Photo strip** — a classic cream photobooth strip, docked flush to the
   left edge, running the full height of the screen (straight, no tilt)
   with 4 square slots, thin margins/gaps, and a proportionally larger
-  bottom margin like a real strip's "tail". Each solved (or skipped)
-  puzzle fills the next slot; empty slots show a dimmed, numbered
-  placeholder so you can see how many shots remain. Once all 4 are
-  filled, the strip auto-composes and downloads a single combined image
-  (matching the on-screen strip's proportions) and resets itself for a
-  fresh round — no button click needed.
+  bottom margin like a real strip's "tail". Each capture fills the next
+  slot; empty slots show a dimmed, numbered placeholder so you can see how
+  many shots remain. Once all 4 are filled, the strip auto-composes and
+  downloads a single combined image (matching the on-screen strip's
+  proportions) and resets itself for a fresh round — no button click
+  needed.
 
 ## Status
 
-The live frame + vintage preview effect, the full capture flow, the
-sliding-puzzle mini-game, and the photo strip + auto-save are all fully
-implemented:
+The live frame + vintage preview effect, the full capture flow, and the
+photo strip + auto-save are all fully implemented:
 
 - Webcam permission is requested and the mirrored feed is the full-screen
   background — it's the main visual, not tucked away
@@ -145,43 +129,10 @@ implemented:
   content/order by sampling pixels directly
 - Immediately after composing, the strip resets (all 4 slots back to
   dimmed placeholders) — confirmed visually and via state inspection
-- The puzzle mini-game (`PuzzleGame`) is a small, self-contained phase
-  state machine (`"hidden"` → `"preview"` → `"puzzle"` → `"solved"` →
-  back to `"hidden"`) that `mainLoop` defers to completely whenever it's
-  active — an early-return guard means the normal frame-detection /
-  pinch-lock logic doesn't run at all while a puzzle is up, so the two
-  systems can never interfere with each other
-- The shuffle (`shufflePuzzleBoard`) always produces a *solvable* board by
-  construction — it starts from the solved state and makes a series of
-  random valid slides (any sequence of legal moves can always be undone),
-  rather than a naive random shuffle of all 9 positions (which is only
-  solvable half the time). Independently verified over 500 trials against
-  the standard inversion-count solvability test for odd-width sliding
-  puzzles: 0 unsolvable boards
-- Tile-dragging reuses the same distance-ratio + hysteresis open-palm
-  detection technique as catscradle/neonpoint (kept local to this file,
-  not shared, since the mini-game is meant to be self-contained): an open
-  palm hovering over a tile adjacent to the blank arms a drag; moving the
-  palm slides the tile along the one valid axis, snapping into place past
-  the halfway point; closing the hand or drifting too far perpendicular
-  to the slide axis cancels it. Confirmed via synthetic hand landmarks —
-  correct arm/reject-by-adjacency, proportional offset while dragging,
-  commit-past-threshold, hand-close cancel, and perpendicular-cancel all
-  behave correctly
-- The Skip button's fingertip dwell timer tracks either hand's index tip
-  against the button's live bounding box every frame, drives a
-  `--dwell-progress` CSS variable for the radial ring, and resets the
-  instant the fingertip leaves — confirmed the ring fills proportionally,
-  resets cleanly on early exit, and triggers skip exactly at 1.5s
-- Both solving and skipping hand the photo off to the exact same
-  `PhotoStrip.addPhoto()` used by the old direct-capture flow — solving
-  passes the reconstructed image, skipping passes the original untouched
-  capture — confirmed by identity-checking the photo object that lands in
-  the strip in each case
 
-Not yet built: gesture/pose validation for the *frame* (right now the
-rectangle shows whenever both hands are simply detected, not specifically
-when fingers are extended in an L-shape).
+Not yet built: gesture/pose validation (right now the rectangle shows
+whenever both hands are simply detected, not specifically when fingers
+are extended in an L-shape).
 
 ## Stack
 
@@ -216,18 +167,11 @@ see a glowing rectangle appear between them, vintage black-and-white
 inside, normal color outside. Pinch your right hand's thumb and index
 together to lock it in and start the 4-second countdown; open the
 console beforehand to see each captured photo logged with a thumbnail.
-
-After the shutter flash, the photo appears full-size for a moment, then
-scrambles into a 3×3 sliding puzzle. Hold your RIGHT hand open, palm
-toward the camera, and hover it over a tile next to the blank spot — then
-move your palm toward the blank to slide that tile in; do this until all
-9 tiles (well, 8 — one stays blank) are back in order. Or just click
-"Skip" (or hover a fingertip over it for 1.5s) to send the photo to the
-strip as-is. Repeat 4 times total to fill the strip (docked left) and get
-an automatic download of the combined image.
+Repeat 4 times to fill the strip (docked left) and get an automatic
+download of the combined image.
 
 ## Files
 
-- `index.html` — page structure: full-screen mirrored webcam video, overlay canvas, status bar, photo strip, Skip button
-- `style.css` — full-bleed layout, styling, the photobooth-strip look, and the Skip button's radial dwell-progress ring
-- `script.js` — webcam init, canvas setup, MediaPipe hand tracking, the viewfinder/vintage-crop/grain/capture/photo-strip logic, and the `PuzzleGame` sliding-puzzle mini-game (solvable shuffle, open-palm tile dragging, fingertip-dwell Skip button)
+- `index.html` — page structure: full-screen mirrored webcam video, overlay canvas, status bar, photo strip
+- `style.css` — full-bleed layout, styling, and the photobooth-strip look
+- `script.js` — webcam init, canvas setup, MediaPipe hand tracking, and the viewfinder/vintage-crop/grain/capture/photo-strip logic

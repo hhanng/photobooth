@@ -31,6 +31,18 @@ const FRAME_GLOW_ALPHA = 0.35;
 const FRAME_CORE_WIDTH = 1.5;
 // -------------------------------------------------------------------------
 
+// --- Strip crop guide ----------------------------------------------------
+// A second, dimmer dashed square drawn inside the live viewfinder rect,
+// showing the square center-crop the photo strip will actually keep (strip
+// slots are always square, cropped "cover"-style -- see drawStripSlotImage)
+// -- so while framing, the user can see exactly what will end up in the
+// strip instead of guessing and getting the edges cropped off later.
+const STRIP_GUIDE_COLOR = "rgb(255, 214, 130)"; // warm gold, distinct from the white frame
+const STRIP_GUIDE_ALPHA = 0.55;
+const STRIP_GUIDE_LINE_WIDTH = 1.5;
+const STRIP_GUIDE_DASH = [8, 6];
+// -------------------------------------------------------------------------
+
 // --- Capture gesture (right-hand pinch) + countdown/flash --------------
 // Pinch distance is measured in VIDEO PIXEL space (not normalized, not
 // canvas space) -- same approach/threshold ballpark as condensate's pinch
@@ -216,7 +228,6 @@ const CaptureState = {
   countdownStartMs: null,
   flashStartMs: null,
   wasPinching: false, // for rising-edge (single-trigger) pinch detection
-  pendingPhoto: null, // captured photo, held from "flash" until it's handed to PuzzleGame
 };
 
 // In-memory captured photos -- { canvas, dataUrl, width, height, timestamp }.
@@ -481,10 +492,7 @@ function capturePhoto(video, videoW, videoH, rectX, rectY, rectW, rectH) {
   };
   capturedPhotos.push(photo);
   logCapturedPhoto(photo);
-  // Note: this photo is handed to the sliding-puzzle mini-game next
-  // (see mainLoop's countdown/flash handling + PuzzleGame.start), NOT
-  // added to the strip directly -- PuzzleGame._finish() is what
-  // eventually calls PhotoStrip.addPhoto(), once solved or skipped.
+  PhotoStrip.addPhoto(photo);
   return photo;
 }
 
@@ -652,403 +660,6 @@ function composeAndDownloadStrip(photos) {
 }
 // -------------------------------------------------------------------------
 
-// --- Sliding puzzle mini-game --------------------------------------------
-// Inserted between "capture" and "the strip": PuzzleGame.start(photo) is
-// called once, after the capture flash, and PuzzleGame._finish() is what
-// eventually calls PhotoStrip.addPhoto() -- capturePhoto() itself no
-// longer adds directly. Fully self-contained: mainLoop just checks
-// PuzzleGame.phase and, whenever it isn't "hidden", hands the whole frame
-// over to PuzzleGame.update()/render() instead of running the normal
-// frame-detection/pinch-lock logic, so the two systems never run at the
-// same time and can't interfere with each other.
-const PUZZLE_GRID_SIZE = 3;
-const PUZZLE_TILE_COUNT = PUZZLE_GRID_SIZE * PUZZLE_GRID_SIZE; // 9
-const PUZZLE_BLANK_INDEX = PUZZLE_TILE_COUNT - 1; // 8, bottom-right when solved
-const PUZZLE_SHUFFLE_MOVES = 120; // random valid slides from solved -- always solvable by construction
-const PUZZLE_PREVIEW_DURATION_MS = 1000;
-const PUZZLE_SOLVED_FLASH_DURATION_MS = 600;
-const PUZZLE_BOARD_SIZE_FRACTION = 0.55; // fraction of min(viewport w, h)
-const PUZZLE_TILE_GAP = 3; // px, thin gap between tiles
-const PUZZLE_DRAG_SNAP_FRACTION = 0.5; // drag past halfway to commit the slide
-const PUZZLE_DRAG_CANCEL_PERP_TILES = 1.2; // moving this many tile-widths off the slide axis cancels the drag
-
-const SKIP_DWELL_MS = 1500;
-
-// Open-palm gesture (right hand, for dragging tiles) -- same distance-
-// ratio + hysteresis approach as catscradle/neonpoint's finger-state
-// detection, kept local to this feature rather than shared, per the
-// "self-contained" ask.
-const PALM_FINGER_EXTENDED_ENTER = 1.15;
-const PALM_FINGER_EXTENDED_EXIT = 1.05;
-const PALM_FINGER_CURLED_ENTER = 0.8;
-const PALM_FINGER_CURLED_EXIT = 0.9;
-const PALM_FINGER_JOINTS = {
-  thumb: [3, 4],
-  index: [6, 8],
-  middle: [10, 12],
-  ring: [14, 16],
-  pinky: [18, 20],
-};
-const PALM_CENTER_LANDMARKS = [0, 5, 9, 13, 17]; // wrist + the four finger MCPs
-
-function palmCenterOf(landmarks) {
-  let x = 0;
-  let y = 0;
-  for (const i of PALM_CENTER_LANDMARKS) {
-    x += landmarks[i].x;
-    y += landmarks[i].y;
-  }
-  return { x: x / PALM_CENTER_LANDMARKS.length, y: y / PALM_CENTER_LANDMARKS.length };
-}
-
-function palmFingerStateWithHysteresis(ratio, prevState) {
-  if (prevState === "extended") {
-    if (ratio >= PALM_FINGER_EXTENDED_EXIT) return "extended";
-    return ratio <= PALM_FINGER_CURLED_ENTER ? "curled" : "neutral";
-  }
-  if (prevState === "curled") {
-    if (ratio <= PALM_FINGER_CURLED_EXIT) return "curled";
-    return ratio >= PALM_FINGER_EXTENDED_ENTER ? "extended" : "neutral";
-  }
-  if (ratio >= PALM_FINGER_EXTENDED_ENTER) return "extended";
-  if (ratio <= PALM_FINGER_CURLED_ENTER) return "curled";
-  return "neutral";
-}
-
-function computePalmFingerStates(landmarks, prevStates) {
-  const palm = palmCenterOf(landmarks);
-  const states = {};
-  for (const [name, [pipIdx, tipIdx]] of Object.entries(PALM_FINGER_JOINTS)) {
-    const pipDist = Math.hypot(landmarks[pipIdx].x - palm.x, landmarks[pipIdx].y - palm.y);
-    const tipDist = Math.hypot(landmarks[tipIdx].x - palm.x, landmarks[tipIdx].y - palm.y);
-    const ratio = tipDist / pipDist;
-    const prevState = prevStates?.[name]?.state ?? "neutral";
-    states[name] = { ratio, state: palmFingerStateWithHysteresis(ratio, prevState) };
-  }
-  return states;
-}
-
-function isOpenPalmFromStates(states) {
-  return Object.values(states).every((f) => f.state !== "curled");
-}
-
-function puzzleAdjacentSlots(slot) {
-  const row = Math.floor(slot / PUZZLE_GRID_SIZE);
-  const col = slot % PUZZLE_GRID_SIZE;
-  const result = [];
-  if (row > 0) result.push(slot - PUZZLE_GRID_SIZE);
-  if (row < PUZZLE_GRID_SIZE - 1) result.push(slot + PUZZLE_GRID_SIZE);
-  if (col > 0) result.push(slot - 1);
-  if (col < PUZZLE_GRID_SIZE - 1) result.push(slot + 1);
-  return result;
-}
-
-// Splits the photo into PUZZLE_TILE_COUNT - 1 tile canvases (index
-// PUZZLE_BLANK_INDEX is left null -- the blank has no image), in solved
-// left-to-right/top-to-bottom order.
-function buildPuzzleTiles(photo) {
-  const tileW = photo.width / PUZZLE_GRID_SIZE;
-  const tileH = photo.height / PUZZLE_GRID_SIZE;
-  const tiles = [];
-  for (let row = 0; row < PUZZLE_GRID_SIZE; row++) {
-    for (let col = 0; col < PUZZLE_GRID_SIZE; col++) {
-      const idx = row * PUZZLE_GRID_SIZE + col;
-      if (idx === PUZZLE_BLANK_INDEX) {
-        tiles.push(null);
-        continue;
-      }
-      const off = document.createElement("canvas");
-      off.width = Math.max(1, Math.round(tileW));
-      off.height = Math.max(1, Math.round(tileH));
-      const octx = off.getContext("2d");
-      octx.drawImage(photo.canvas, col * tileW, row * tileH, tileW, tileH, 0, 0, off.width, off.height);
-      tiles.push(off);
-    }
-  }
-  return tiles;
-}
-
-// board[slot] = the ORIGINAL tile index currently sitting in that grid
-// slot (solved: board[i] === i, with board[PUZZLE_BLANK_INDEX] holding
-// the blank marker). Shuffles by performing PUZZLE_SHUFFLE_MOVES random
-// valid slides from the solved state -- any sequence of legal moves from
-// solved is, by construction, always solvable (just undo them), avoiding
-// the classic "naive random permutation is often unsolvable" pitfall.
-function shufflePuzzleBoard(moves) {
-  const board = Array.from({ length: PUZZLE_TILE_COUNT }, (_, i) => i);
-  let blankSlot = PUZZLE_BLANK_INDEX;
-  let lastSlot = -1;
-  for (let m = 0; m < moves; m++) {
-    const neighbors = puzzleAdjacentSlots(blankSlot);
-    const candidates = neighbors.filter((s) => s !== lastSlot);
-    const pool = candidates.length > 0 ? candidates : neighbors;
-    const pick = pool[Math.floor(Math.random() * pool.length)];
-    board[blankSlot] = board[pick];
-    board[pick] = PUZZLE_BLANK_INDEX;
-    lastSlot = blankSlot;
-    blankSlot = pick;
-  }
-  return { board, blankSlot };
-}
-
-function puzzleBoardGeometry() {
-  const boardSize = Math.min(Canvas.width, Canvas.height) * PUZZLE_BOARD_SIZE_FRACTION;
-  const boardX = (Canvas.width - boardSize) / 2;
-  const boardY = (Canvas.height - boardSize) / 2;
-  const tileSize = boardSize / PUZZLE_GRID_SIZE;
-  return { boardSize, boardX, boardY, tileSize };
-}
-
-function setSkipButtonVisible(visible) {
-  const btn = document.getElementById("skip-button");
-  btn.style.display = visible ? "flex" : "none";
-  if (!visible) {
-    btn.style.setProperty("--dwell-progress", "0");
-    btn.classList.remove("dwelling");
-  }
-}
-
-const PuzzleGame = {
-  phase: "hidden", // "hidden" | "preview" | "puzzle" | "solved"
-  photo: null,
-  tiles: null,
-  board: null,
-  blankSlot: null,
-  previewStartMs: null,
-  solvedStartMs: null,
-  drag: null, // { slot, tileIndex, axis, dir, startPalm, offsetX, offsetY } or null
-  rightHandFingerMemory: null,
-  skipDwellStartMs: null,
-
-  start(photo, nowMs) {
-    this.phase = "preview";
-    this.photo = photo;
-    this.previewStartMs = nowMs;
-    this.tiles = null;
-    this.board = null;
-    this.blankSlot = null;
-    this.drag = null;
-    this.rightHandFingerMemory = null;
-    this.skipDwellStartMs = null;
-    setSkipButtonVisible(false);
-  },
-
-  update(nowMs, hands, videoW, videoH) {
-    if (this.phase === "preview") {
-      if (nowMs - this.previewStartMs >= PUZZLE_PREVIEW_DURATION_MS) this._beginPuzzle();
-      return;
-    }
-    if (this.phase === "puzzle") {
-      this._updateDwellSkip(hands, videoW, videoH);
-      this._updateTileDrag(nowMs, hands, videoW, videoH);
-      return;
-    }
-    if (this.phase === "solved") {
-      if (nowMs - this.solvedStartMs >= PUZZLE_SOLVED_FLASH_DURATION_MS) this._finish();
-    }
-  },
-
-  render(nowMs) {
-    const ctx = Canvas.ctx;
-    ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
-    ctx.fillRect(0, 0, Canvas.width, Canvas.height);
-
-    if (this.phase === "preview") {
-      this._drawCenteredPhoto();
-    } else if (this.phase === "puzzle") {
-      this._drawBoard();
-    } else if (this.phase === "solved") {
-      this._drawBoard();
-      const t = clamp((nowMs - this.solvedStartMs) / PUZZLE_SOLVED_FLASH_DURATION_MS, 0, 1);
-      const alpha = Math.sin(t * Math.PI) * 0.6;
-      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-      ctx.fillRect(0, 0, Canvas.width, Canvas.height);
-    }
-  },
-
-  _beginPuzzle() {
-    this.tiles = buildPuzzleTiles(this.photo);
-    const { board, blankSlot } = shufflePuzzleBoard(PUZZLE_SHUFFLE_MOVES);
-    this.board = board;
-    this.blankSlot = blankSlot;
-    this.phase = "puzzle";
-    setSkipButtonVisible(true);
-  },
-
-  _drawCenteredPhoto() {
-    const ctx = Canvas.ctx;
-    const maxSize = Math.min(Canvas.width, Canvas.height) * PUZZLE_BOARD_SIZE_FRACTION;
-    const aspect = this.photo.width / this.photo.height;
-    const drawW = aspect >= 1 ? maxSize : maxSize * aspect;
-    const drawH = aspect >= 1 ? maxSize / aspect : maxSize;
-    const x = (Canvas.width - drawW) / 2;
-    const y = (Canvas.height - drawH) / 2;
-
-    ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
-    ctx.shadowBlur = 24;
-    ctx.drawImage(this.photo.canvas, x, y, drawW, drawH);
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(x, y, drawW, drawH);
-    ctx.restore();
-  },
-
-  _drawBoard() {
-    const ctx = Canvas.ctx;
-    const { boardX, boardY, boardSize, tileSize } = puzzleBoardGeometry();
-
-    for (let slot = 0; slot < PUZZLE_TILE_COUNT; slot++) {
-      const tileIndex = this.board[slot];
-      if (tileIndex === PUZZLE_BLANK_INDEX) continue;
-      const row = Math.floor(slot / PUZZLE_GRID_SIZE);
-      const col = slot % PUZZLE_GRID_SIZE;
-      let drawX = boardX + col * tileSize;
-      let drawY = boardY + row * tileSize;
-      if (this.drag && this.drag.slot === slot) {
-        drawX += this.drag.offsetX;
-        drawY += this.drag.offsetY;
-      }
-      ctx.drawImage(
-        this.tiles[tileIndex],
-        drawX + PUZZLE_TILE_GAP / 2,
-        drawY + PUZZLE_TILE_GAP / 2,
-        tileSize - PUZZLE_TILE_GAP,
-        tileSize - PUZZLE_TILE_GAP
-      );
-    }
-
-    ctx.save();
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(boardX, boardY, boardSize, boardSize);
-    ctx.restore();
-  },
-
-  // Either hand's index fingertip hovering continuously over the Skip
-  // button for SKIP_DWELL_MS triggers a skip -- leaving the button area
-  // at any point resets the dwell timer.
-  _updateDwellSkip(hands, videoW, videoH) {
-    const btn = document.getElementById("skip-button");
-    const rect = btn.getBoundingClientRect();
-    let hovering = false;
-    for (const hand of hands) {
-      const tip = hand.landmarks[INDEX_TIP];
-      const p = mapVideoToCanvas(tip.x, tip.y, videoW, videoH, Canvas.width, Canvas.height);
-      if (p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom) {
-        hovering = true;
-        break;
-      }
-    }
-
-    if (!hovering) {
-      this.skipDwellStartMs = null;
-      btn.style.setProperty("--dwell-progress", "0");
-      btn.classList.remove("dwelling");
-      return;
-    }
-
-    if (this.skipDwellStartMs === null) this.skipDwellStartMs = performance.now();
-    const progress = clamp((performance.now() - this.skipDwellStartMs) / SKIP_DWELL_MS, 0, 1);
-    btn.style.setProperty("--dwell-progress", String(progress));
-    btn.classList.add("dwelling");
-    if (progress >= 1) this.skip();
-  },
-
-  // Right-hand open-palm tile dragging: hovering an open palm over a tile
-  // adjacent to the blank arms a drag; moving the palm toward the blank
-  // slides the tile (constrained to that single axis) and commits the
-  // slide past PUZZLE_DRAG_SNAP_FRACTION; closing the hand, or drifting
-  // too far off the slide axis, cancels an uncommitted drag.
-  _updateTileDrag(nowMs, hands, videoW, videoH) {
-    const rightHand = hands.find((h) => h.handedness === "Right") || null;
-    if (!rightHand) {
-      this.rightHandFingerMemory = null;
-      this.drag = null;
-      return;
-    }
-
-    const fingerStates = computePalmFingerStates(rightHand.landmarks, this.rightHandFingerMemory);
-    this.rightHandFingerMemory = fingerStates;
-    const isOpen = isOpenPalmFromStates(fingerStates);
-
-    const palmNorm = palmCenterOf(rightHand.landmarks);
-    const palmScreen = mapVideoToCanvas(palmNorm.x, palmNorm.y, videoW, videoH, Canvas.width, Canvas.height);
-    const { boardX, boardY, tileSize } = puzzleBoardGeometry();
-
-    if (!this.drag) {
-      if (!isOpen) return;
-      const col = Math.floor((palmScreen.x - boardX) / tileSize);
-      const row = Math.floor((palmScreen.y - boardY) / tileSize);
-      if (col < 0 || col >= PUZZLE_GRID_SIZE || row < 0 || row >= PUZZLE_GRID_SIZE) return;
-      const slot = row * PUZZLE_GRID_SIZE + col;
-      if (slot === this.blankSlot || !puzzleAdjacentSlots(this.blankSlot).includes(slot)) return;
-
-      const blankRow = Math.floor(this.blankSlot / PUZZLE_GRID_SIZE);
-      const blankCol = this.blankSlot % PUZZLE_GRID_SIZE;
-      const axis = row === blankRow ? "x" : "y";
-      const dir = axis === "x" ? Math.sign(blankCol - col) : Math.sign(blankRow - row);
-
-      this.drag = { slot, tileIndex: this.board[slot], axis, dir, startPalm: palmScreen, offsetX: 0, offsetY: 0 };
-      return;
-    }
-
-    if (!isOpen) {
-      this.drag = null;
-      return;
-    }
-
-    const dx = palmScreen.x - this.drag.startPalm.x;
-    const dy = palmScreen.y - this.drag.startPalm.y;
-    const perp = this.drag.axis === "x" ? dy : dx;
-    if (Math.abs(perp) > tileSize * PUZZLE_DRAG_CANCEL_PERP_TILES) {
-      this.drag = null;
-      return;
-    }
-
-    const forward = (this.drag.axis === "x" ? dx : dy) * this.drag.dir;
-    const fraction = clamp(forward / tileSize, 0, 1);
-    this.drag.offsetX = this.drag.axis === "x" ? this.drag.dir * fraction * tileSize : 0;
-    this.drag.offsetY = this.drag.axis === "y" ? this.drag.dir * fraction * tileSize : 0;
-
-    if (fraction >= PUZZLE_DRAG_SNAP_FRACTION) {
-      const fromSlot = this.drag.slot;
-      const toSlot = this.blankSlot;
-      this.board[toSlot] = this.board[fromSlot];
-      this.board[fromSlot] = PUZZLE_BLANK_INDEX;
-      this.blankSlot = fromSlot;
-      this.drag = null;
-
-      if (this.board.every((tileIndex, slot) => tileIndex === slot)) {
-        this.phase = "solved";
-        this.solvedStartMs = nowMs;
-        setSkipButtonVisible(false);
-      }
-    }
-  },
-
-  skip() {
-    if (this.phase !== "puzzle") return;
-    this._finish();
-  },
-
-  _finish() {
-    const photo = this.photo;
-    this.phase = "hidden";
-    this.photo = null;
-    this.tiles = null;
-    this.board = null;
-    this.blankSlot = null;
-    this.drag = null;
-    this.rightHandFingerMemory = null;
-    this.skipDwellStartMs = null;
-    setSkipButtonVisible(false);
-    PhotoStrip.addPhoto(photo);
-  },
-};
-// -------------------------------------------------------------------------
-
 function setStatus(elementId, label, state) {
   const el = document.getElementById(elementId);
   el.textContent = label;
@@ -1064,16 +675,6 @@ function mainLoop(nowMs) {
   const hands = video && video.readyState >= 2 && video.videoWidth ? HandTracker.detect(video, nowMs) : [];
   const videoW = video?.videoWidth || 0;
   const videoH = video?.videoHeight || 0;
-
-  // While the puzzle mini-game is up, it fully owns the frame -- the
-  // normal frame-detection/pinch-lock logic below doesn't run at all,
-  // so the two systems never interfere with each other.
-  if (PuzzleGame.phase !== "hidden") {
-    PuzzleGame.update(nowMs, hands, videoW, videoH);
-    PuzzleGame.render(nowMs);
-    requestAnimationFrame(mainLoop);
-    return;
-  }
 
   const rightHand = hands.find((h) => h.handedness === "Right") || null;
   const leftHand = hands.find((h) => h.handedness === "Left") || null;
@@ -1122,7 +723,7 @@ function mainLoop(nowMs) {
     drawCountdownNumber(x, y, w, h, nowMs);
 
     if (nowMs - CaptureState.countdownStartMs >= COUNTDOWN_SECONDS * 1000) {
-      CaptureState.pendingPhoto = capturePhoto(video, videoW, videoH, x, y, w, h);
+      capturePhoto(video, videoW, videoH, x, y, w, h);
       CaptureState.phase = "flash";
       CaptureState.flashStartMs = nowMs;
     }
@@ -1138,25 +739,16 @@ function mainLoop(nowMs) {
       // a pinch held all the way through the countdown can't immediately
       // re-trigger a second capture the instant we unlock.
       CaptureState.wasPinching = true;
-
-      const photo = CaptureState.pendingPhoto;
-      CaptureState.pendingPhoto = null;
-      PuzzleGame.start(photo, nowMs);
     }
   }
 
   requestAnimationFrame(mainLoop);
 }
 
-function setupSkipButton() {
-  document.getElementById("skip-button").addEventListener("click", () => PuzzleGame.skip());
-}
-
 async function init() {
   Canvas.init();
   initGrain();
   PhotoStrip.init();
-  setupSkipButton();
   await Promise.all([Webcam.init(), HandTracker.init()]);
   requestAnimationFrame(mainLoop);
 }
