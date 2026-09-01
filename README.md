@@ -295,12 +295,28 @@ photo strip + auto-save are all fully implemented:
   builds one swatch button per entry, so adding a pattern later is only
   ever appending a path there, nothing else to touch. Each composed strip
   reads `StripPatternState.index` fresh via `fillStripBackground()`, which
-  fills the canvas with `ctx.createPattern(img, "repeat")` (falling back
-  to the old flat cream color if the image hasn't finished loading) —
-  tiled rather than stretched, so the fabric stripe motif doesn't distort.
-  The on-screen strip mirrors the same selection through a `--strip-pattern`
+  fills the canvas with `ctx.createPattern(..., "repeat")` (falling back
+  to the old flat cream color if the image hasn't finished loading). The
+  on-screen strip mirrors the same selection through a `--strip-pattern`
   CSS custom property, updated by `updateOnScreenStripPattern()` whenever
   the selection changes
+- The source pattern images are much higher-resolution than the strip is
+  wide, so tiling them at native size showed only a tiny, zoomed-in crop
+  of one repeat rather than a proper small repeating motif (looked
+  "stretched" even though nothing was actually being scaled up).
+  `STRIP_PATTERN_TILE_RATIO` (one constant, near `STRIP_PATTERNS`) fixes
+  this: each tile's width is that fraction of one photo slot's size, so a
+  handful of repeats fit across the strip like real wallpaper, at both
+  ends —
+  `scalePatternForTiling()` pre-scales each pattern down to a small
+  offscreen canvas once (cached in `stripPatternTileCanvases`, keyed by
+  path) for the composed/downloaded strip, and a matching
+  `--strip-pattern-tile-size` CSS variable (set alongside the other
+  responsive sizing in `PhotoStrip.layout()`, so it stays proportional to
+  the actual on-screen slot size) drives `background-size` for the live
+  strip. Confirmed visually: multiple clean stripe repeats across the
+  strip's width in both the live preview and a rendered composed strip,
+  not a single zoomed-in color block
 - `PatternPicker.updateDwell()` runs every frame regardless of
   `CaptureState.phase` (confirmed it still arms during a forced
   `"countdown"` phase) — it requires **both** hands' index fingertips

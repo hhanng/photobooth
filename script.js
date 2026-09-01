@@ -208,15 +208,45 @@ const STRIP_SIGNATURE_TEXT = "/by hhan/";
 const STRIP_PATTERNS = ["assets/strip-patterns/red-stripes.png"];
 const PATTERN_DWELL_MS = 500; // both index fingertips together on one swatch
 
+// The source pattern images are much higher-resolution than the strip is
+// wide, so tiling them at native size shows only a tiny, zoomed-in crop of
+// one repeat (looks "stretched" even though nothing is actually being
+// scaled). This is the one knob to retune that: each tile's on-screen
+// width is this fraction of one photo slot's size, so a handful of
+// repeats fit across the strip's width like real wallpaper. Tune this
+// after actually looking at the result -- smaller = more, tinier repeats;
+// larger = fewer, bigger ones.
+const STRIP_PATTERN_TILE_RATIO = 0.16;
+
 // Loaded once at startup, keyed by path -- see preloadStripPatterns().
-const stripPatternImages = {};
+const stripPatternImages = {}; // path -> full-res Image
+const stripPatternTileCanvases = {}; // path -> small canvas pre-scaled to STRIP_PATTERN_TILE_RATIO, for ctx.createPattern
 
 function preloadStripPatterns() {
   for (const path of STRIP_PATTERNS) {
     const img = new Image();
+    img.onload = () => {
+      stripPatternTileCanvases[path] = scalePatternForTiling(img, STRIP_COMPOSE_SLOT_SIZE * STRIP_PATTERN_TILE_RATIO);
+    };
     img.src = path;
     stripPatternImages[path] = img;
   }
+}
+
+// Draws `img` down to a small canvas `targetWidth` wide (aspect-preserved)
+// -- this smaller canvas, not the original full-res image, is what gets
+// handed to ctx.createPattern for the composed strip, so each repeat
+// actually reads as the intended tile size instead of a native-resolution
+// crop of the source.
+function scalePatternForTiling(img, targetWidth) {
+  const aspect = img.naturalHeight / img.naturalWidth;
+  const w = Math.max(1, Math.round(targetWidth));
+  const h = Math.max(1, Math.round(targetWidth * aspect));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+  return canvas;
 }
 
 // Which pattern is currently selected -- read fresh by composeStripImage()
@@ -229,7 +259,9 @@ const StripPatternState = {
 
 // Reflects the current selection onto the live on-screen strip's CSS
 // background (the composed/downloaded image reads StripPatternState.index
-// directly in composeStripImage, independent of this).
+// directly in composeStripImage, independent of this). The actual tile
+// *size* on screen is set separately, in PhotoStrip.layout(), since it
+// has to stay proportional to the strip's own (responsive) slot size.
 function updateOnScreenStripPattern() {
   const path = STRIP_PATTERNS[StripPatternState.index];
   document.documentElement.style.setProperty("--strip-pattern", `url("${path}")`);
@@ -749,6 +781,11 @@ const PhotoStrip = {
     style.setProperty("--strip-bottom-margin", `${bottomMargin}px`);
     style.setProperty("--strip-gap", `${gap}px`);
     style.setProperty("--strip-width", `${width}px`);
+    // Keeps the on-screen pattern tile proportional to the (responsive)
+    // slot size, using the same ratio the composed/downloaded strip uses
+    // relative to its own fixed-resolution slot size -- see
+    // STRIP_PATTERN_TILE_RATIO for why this exists at all.
+    style.setProperty("--strip-pattern-tile-size", `${slotSize * STRIP_PATTERN_TILE_RATIO}px`);
   },
 
   _renderEmptySlot(index) {
@@ -851,9 +888,9 @@ function cropPhotoToCanvas(photo, width, height) {
 // patterns mid-round applies to whichever strip finishes next.
 function fillStripBackground(ctx, width, height) {
   const path = STRIP_PATTERNS[StripPatternState.index];
-  const img = stripPatternImages[path];
-  if (img && img.complete && img.naturalWidth > 0) {
-    ctx.fillStyle = ctx.createPattern(img, "repeat");
+  const tile = stripPatternTileCanvases[path];
+  if (tile) {
+    ctx.fillStyle = ctx.createPattern(tile, "repeat");
   } else {
     ctx.fillStyle = STRIP_COMPOSE_BG;
   }

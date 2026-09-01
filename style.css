@@ -217,9 +217,14 @@ html, body {
   align-items: center;
   gap: var(--strip-gap, 10px);
   /* --strip-pattern is set by updateOnScreenStripPattern() whenever the
-     selected swatch changes; the gradient is just the pre-JS fallback. */
+     selected swatch changes; the gradient is just the pre-JS fallback.
+     --strip-pattern-tile-size (from PhotoStrip.layout()) keeps each
+     repeat at a real "wallpaper" scale instead of the pattern's native,
+     much-larger-than-the-strip resolution -- without this the image just
+     shows one zoomed-in crop of itself, which reads as stretched. */
   background: var(--strip-pattern, linear-gradient(180deg, #faf6ec, #efe8d6));
   background-repeat: repeat;
+  background-size: var(--strip-pattern-tile-size, 72px) auto;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 3px 8px rgba(0, 0, 0, 0.35);
   box-sizing: border-box;
 }
