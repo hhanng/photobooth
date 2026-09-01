@@ -1,0 +1,203 @@
+:root {
+  --bg: #000000;
+  --panel: #1e1e1ecc;
+  --border: #3c3c3c;
+  --text: #d4d4d4;
+  --ok: #4ec9b0;
+  --warn: #ce9178;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--text);
+}
+
+/* The mirrored camera feed is the background -- object-fit: cover fills
+   the viewport regardless of its native aspect ratio, scaleX(-1) mirrors
+   it so it feels like looking in a mirror. */
+#webcam-video {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  transform: scaleX(-1);
+  background: #000;
+}
+
+/* Transparent overlay: the viewfinder frame outline and the vintage
+   filtered crop are drawn here, on top of the live video. */
+#effects-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 1;
+}
+
+#status-bar {
+  position: fixed;
+  top: 1rem;
+  left: calc(var(--strip-width, 132px) + 1rem);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  backdrop-filter: blur(6px);
+}
+
+#brand {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
+
+.status-pill {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #2d2d2d;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.status-pill.ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.status-pill.error {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+/* Classic photobooth strip: a narrow cream paper column docked flush to
+   the left, running the full height of the screen (top edge to bottom
+   edge), with a soft drop shadow like it's hanging in front of the
+   video. Slot size and all margins/gaps are computed in JS
+   (PhotoStrip.layout(), keyed off window.innerHeight) and set as CSS
+   custom properties here, so the strip always exactly touches top and
+   bottom regardless of viewport size, with square photo slots and a
+   proportionally larger bottom margin (the classic strip's "tail"). */
+#photo-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  z-index: 10;
+  width: var(--strip-width, 132px);
+  padding: var(--strip-top-margin, 16px) var(--strip-side-margin, 16px) var(--strip-bottom-margin, 48px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--strip-gap, 10px);
+  background: linear-gradient(180deg, #faf6ec, #efe8d6);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 3px 8px rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
+}
+
+/* Subtle paper grain, via an inline SVG fractal-noise filter -- cheap,
+   pure CSS, no per-frame cost. */
+#photo-strip::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.08'/></svg>");
+}
+
+.strip-slot {
+  position: relative;
+  width: var(--strip-slot-size, 112px);
+  height: var(--strip-slot-size, 112px);
+  flex: 0 0 auto;
+  border-radius: 2px;
+  overflow: hidden;
+  border: 1px solid #d9d0ba;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+  background: #6b6156; /* dimmed vintage-grey placeholder */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.strip-slot.empty {
+  background: #55504a;
+  border-style: dashed;
+  border-color: rgba(120, 110, 90, 0.4);
+}
+
+.strip-slot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.slot-number {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.28);
+}
+
+/* Skip button for the sliding-puzzle mini-game -- clickable normally, and
+   shows a radial fill (--dwell-progress, driven by PuzzleGame's
+   fingertip-dwell check) while a fingertip hovers over it. Hidden by
+   default; PuzzleGame toggles display: flex while the puzzle is up. */
+#skip-button {
+  position: fixed;
+  bottom: 2.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  background: rgba(20, 20, 20, 0.75);
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  --dwell-progress: 0;
+}
+
+.skip-progress-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(var(--ok, #4ec9b0) calc(var(--dwell-progress, 0) * 360deg), rgba(255, 255, 255, 0.15) 0deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+}
+
+#skip-button.dwelling {
+  background: rgba(20, 20, 20, 0.9);
+}
+
+.skip-label {
+  position: relative;
+  z-index: 1;
+}

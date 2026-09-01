@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>photobooth</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <video id="webcam-video" autoplay muted playsinline></video>
+  <canvas id="effects-canvas"></canvas>
+
+  <div id="status-bar">
+    <span id="brand">photobooth</span>
+    <span class="status-pill" id="webcam-status">webcam: idle</span>
+    <span class="status-pill" id="hand-status">hand: idle</span>
+  </div>
+
+  <div id="photo-strip" aria-label="Photo strip"></div>
+
+  <button id="skip-button" type="button" title="Skip the puzzle (or hover your fingertip here for 1.5s)">
+    <span class="skip-progress-ring"></span>
+    <span class="skip-label">Skip</span>
+  </button>
+
+  <script src="script.js" type="module"></script>
+</body>
+</html>
