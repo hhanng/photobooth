@@ -844,21 +844,36 @@ const SizePicker = {
 // Once all 4 slots fill, the round no longer auto-downloads the strip and
 // resets by itself -- this modal asks how to save it: the combined strip
 // (as before), each photo individually (square, matching the strip crop,
-// or one custom width/height applied to all 4), or both. `isOpen` gates
-// mainLoop so no new capture can start while this is up; closing it is
-// what finally resets the round for the next one.
+// or one custom size applied to all 4), or both. `isOpen` gates mainLoop
+// so no new capture can start while this is up; closing it is what
+// finally resets the round for the next one.
+//
+// The custom size isn't typed -- it's drawn with the same two-hand
+// thumb/index rectangle gesture as the main frame, confirmed with the
+// same pinch-and-hold. While drawing, the modal card itself hides so the
+// live camera underneath is visible; `pickingSize` tells mainLoop to run
+// the gesture-tracking branch instead of freezing entirely.
 const ROUND_INDIVIDUAL_STAGGER_MS = 250; // between each of the 4 downloads -- some browsers throttle several fired from one click
 
 const RoundCompleteModal = {
   isOpen: false,
+  pickingSize: false,
   overlayEl: null,
   thumbsEl: null,
   squareRadioEl: null,
   customRadioEl: null,
   customFieldsEl: null,
-  customWidthEl: null,
-  customHeightEl: null,
+  sizeReadoutEl: null,
+  drawSizeBtn: null,
+  cancelSizeBtn: null,
   photos: null,
+  customWidth: null,
+  customHeight: null,
+  saveIndividualBtn: null,
+  // Gesture-drawing-in-progress state, separate from the main capture
+  // flow's CaptureState/FrameSmoothingState so the two never interfere.
+  gesturePoints: null,
+  gesturePinchStartMs: null,
 
   init() {
     this.overlayEl = document.getElementById("round-complete-overlay");
@@ -866,18 +881,32 @@ const RoundCompleteModal = {
     this.squareRadioEl = document.getElementById("round-size-square");
     this.customRadioEl = document.getElementById("round-size-custom");
     this.customFieldsEl = document.getElementById("round-custom-fields");
-    this.customWidthEl = document.getElementById("round-custom-width");
-    this.customHeightEl = document.getElementById("round-custom-height");
+    this.sizeReadoutEl = document.getElementById("round-custom-size-readout");
+    this.drawSizeBtn = document.getElementById("round-draw-size");
+    this.cancelSizeBtn = document.getElementById("size-gesture-cancel");
+    this.saveIndividualBtn = document.getElementById("round-save-individual");
 
     const syncCustomFieldsVisibility = () => {
       this.customFieldsEl.hidden = !this.customRadioEl.checked;
+      this._updateSaveButtonState();
     };
     this.squareRadioEl.addEventListener("change", syncCustomFieldsVisibility);
     this.customRadioEl.addEventListener("change", syncCustomFieldsVisibility);
 
+    this.drawSizeBtn.addEventListener("click", () => this.startSizeGesture());
+    this.cancelSizeBtn.addEventListener("click", () => this.cancelSizeGesture());
+
     document.getElementById("round-save-strip").addEventListener("click", () => this.saveStrip());
-    document.getElementById("round-save-individual").addEventListener("click", () => this.saveIndividual());
+    this.saveIndividualBtn.addEventListener("click", () => this.saveIndividual());
     document.getElementById("round-done").addEventListener("click", () => this.close());
+  },
+
+  // "Save All 4" is disabled whenever "Custom size" is selected but no
+  // size has been drawn yet -- Square always has a size (the strip's own
+  // slot size), so it's never disabled for that choice.
+  _updateSaveButtonState() {
+    const needsSize = this.customRadioEl.checked && (!this.customWidth || !this.customHeight);
+    this.saveIndividualBtn.disabled = needsSize;
   },
 
   open(photos) {
@@ -894,8 +923,10 @@ const RoundCompleteModal = {
 
     this.squareRadioEl.checked = true;
     this.customFieldsEl.hidden = true;
-    this.customWidthEl.value = STRIP_COMPOSE_SLOT_SIZE;
-    this.customHeightEl.value = STRIP_COMPOSE_SLOT_SIZE;
+    this.customWidth = null;
+    this.customHeight = null;
+    this.sizeReadoutEl.textContent = "No size set yet";
+    this._updateSaveButtonState();
 
     this.overlayEl.hidden = false;
   },
@@ -915,12 +946,9 @@ const RoundCompleteModal = {
   saveIndividual() {
     if (!this.photos) return;
     const useSquare = this.squareRadioEl.checked;
-    const width = useSquare
-      ? STRIP_COMPOSE_SLOT_SIZE
-      : Math.max(1, parseInt(this.customWidthEl.value, 10) || STRIP_COMPOSE_SLOT_SIZE);
-    const height = useSquare
-      ? STRIP_COMPOSE_SLOT_SIZE
-      : Math.max(1, parseInt(this.customHeightEl.value, 10) || STRIP_COMPOSE_SLOT_SIZE);
+    if (!useSquare && (!this.customWidth || !this.customHeight)) return; // guarded by disabling the button too
+    const width = useSquare ? STRIP_COMPOSE_SLOT_SIZE : this.customWidth;
+    const height = useSquare ? STRIP_COMPOSE_SLOT_SIZE : this.customHeight;
 
     this.photos.forEach((photo, i) => {
       setTimeout(() => {
@@ -929,7 +957,108 @@ const RoundCompleteModal = {
       }, i * ROUND_INDIVIDUAL_STAGGER_MS);
     });
   },
+
+  // --- Hand-gesture custom size -------------------------------------------
+  startSizeGesture() {
+    this.pickingSize = true;
+    this.gesturePoints = null;
+    this.gesturePinchStartMs = null;
+    this.overlayEl.hidden = true; // reveal the live camera underneath
+    this.cancelSizeBtn.hidden = false;
+  },
+
+  cancelSizeGesture() {
+    this.pickingSize = false;
+    this.cancelSizeBtn.hidden = true;
+    this.overlayEl.hidden = false; // bring the modal back, unchanged
+  },
+
+  // Called every frame from mainLoop while pickingSize is true. Mirrors
+  // the main capture flow's rectangle-forming + pinch-hold-to-confirm
+  // gesture, but confirming just records a size instead of starting a
+  // countdown.
+  updateSizeGesture(nowMs, hands, videoW, videoH) {
+    const rightHand = hands.find((h) => h.handedness === "Right") || null;
+    const leftHand = hands.find((h) => h.handedness === "Left") || null;
+
+    drawSizeGestureInstructions();
+
+    if (!rightHand || !leftHand) {
+      this.gesturePoints = null;
+      this.gesturePinchStartMs = null;
+      return;
+    }
+
+    const rawPoints = [
+      rightHand.landmarks[THUMB_TIP],
+      rightHand.landmarks[INDEX_TIP],
+      leftHand.landmarks[THUMB_TIP],
+      leftHand.landmarks[INDEX_TIP],
+    ].map((lm) => mapVideoToCanvas(lm.x, lm.y, videoW, videoH, Canvas.width, Canvas.height));
+
+    this.gesturePoints = this.gesturePoints
+      ? this.gesturePoints.map((prev, i) => smoothPoint(prev, rawPoints[i], FRAME_SMOOTHING_ALPHA))
+      : rawPoints.map((p) => ({ ...p }));
+    const points = this.gesturePoints;
+
+    const minX = Math.min(...points.map((p) => p.x));
+    const maxX = Math.max(...points.map((p) => p.x));
+    const minY = Math.min(...points.map((p) => p.y));
+    const maxY = Math.max(...points.map((p) => p.y));
+    const rectW = maxX - minX;
+    const rectH = maxY - minY;
+
+    drawFrameOutline(minX, minY, rectW, rectH);
+
+    const pinching = isPinching(rightHand, videoW, videoH, this.gesturePinchStartMs !== null);
+    if (pinching && rectW >= MIN_FRAME_SIZE && rectH >= MIN_FRAME_SIZE) {
+      if (this.gesturePinchStartMs === null) this.gesturePinchStartMs = nowMs;
+      const heldMs = nowMs - this.gesturePinchStartMs;
+      if (heldMs >= PINCH_HOLD_MS) {
+        this._confirmSize(minX, minY, rectW, rectH, videoW, videoH);
+      } else {
+        const mid = pinchMidpoint(rightHand);
+        const midCanvas = mapVideoToCanvas(mid.x, mid.y, videoW, videoH, Canvas.width, Canvas.height);
+        drawPinchHoldProgress(midCanvas, heldMs / PINCH_HOLD_MS);
+      }
+    } else {
+      this.gesturePinchStartMs = null;
+    }
+  },
+
+  // Locks in the drawn rectangle: maps its on-screen corners back to
+  // native video-pixel space (same math the actual photo capture uses),
+  // so a bigger hand-drawn rectangle means a bigger exported photo,
+  // consistently with how framing already works everywhere else here.
+  _confirmSize(rectX, rectY, rectW, rectH, videoW, videoH) {
+    const c1 = mapCanvasToVideo(rectX, rectY, videoW, videoH, Canvas.width, Canvas.height);
+    const c2 = mapCanvasToVideo(rectX + rectW, rectY + rectH, videoW, videoH, Canvas.width, Canvas.height);
+    this.customWidth = Math.max(1, Math.round(Math.abs(c2.x - c1.x)));
+    this.customHeight = Math.max(1, Math.round(Math.abs(c2.y - c1.y)));
+    this.sizeReadoutEl.textContent = `${this.customWidth} × ${this.customHeight}px`;
+    this._updateSaveButtonState();
+
+    this.pickingSize = false;
+    this.cancelSizeBtn.hidden = true;
+    this.overlayEl.hidden = false;
+  },
 };
+
+// Instruction text + a plain full-screen video/rectangle view while
+// drawing a custom size -- no vintage filter here since we're sizing an
+// export canvas, not previewing what a photo will look like.
+function drawSizeGestureInstructions() {
+  const ctx = Canvas.ctx;
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.font = `600 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = "#fff";
+  ctx.fillText("Form a rectangle with both hands, then pinch & hold to set this size", Canvas.width / 2, 24);
+  ctx.restore();
+}
 // -------------------------------------------------------------------------
 
 function setStatus(elementId, label, state) {
@@ -943,19 +1072,23 @@ function mainLoop(nowMs) {
   Canvas.clear();
   grainFrameCounter++;
 
-  // Freeze the live gesture flow while the round-complete modal is up --
-  // nothing to track/draw underneath it, and no new capture should be
-  // able to start until the round is finalized (the strip is already
-  // full, so a capture right now would just be silently dropped anyway).
-  if (RoundCompleteModal.isOpen) {
-    requestAnimationFrame(mainLoop);
-    return;
-  }
-
   const video = Webcam.videoEl;
   const hands = video && video.readyState >= 2 && video.videoWidth ? HandTracker.detect(video, nowMs) : [];
   const videoW = video?.videoWidth || 0;
   const videoH = video?.videoHeight || 0;
+
+  if (RoundCompleteModal.isOpen) {
+    // While drawing a custom size with your hands, the modal card is
+    // hidden and this runs the rectangle-forming + pinch-hold gesture
+    // instead; otherwise (modal card showing, or between captures)
+    // there's nothing to track/draw and no new capture should be able to
+    // start until the round is finalized.
+    if (RoundCompleteModal.pickingSize) {
+      RoundCompleteModal.updateSizeGesture(nowMs, hands, videoW, videoH);
+    }
+    requestAnimationFrame(mainLoop);
+    return;
+  }
 
   const rightHand = hands.find((h) => h.handedness === "Right") || null;
   const leftHand = hands.find((h) => h.handedness === "Left") || null;

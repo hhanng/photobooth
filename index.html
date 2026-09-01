@@ -9,7 +9,7 @@
        time script.js/style.css change, or returning visitors' browsers
        can silently keep serving an old cached copy for up to 10 minutes
        (or longer, depending on the browser) after a new deploy. -->
-  <link rel="stylesheet" href="style.css?v=3" />
+  <link rel="stylesheet" href="style.css?v=4" />
 </head>
 <body>
   <video id="webcam-video" autoplay muted playsinline></video>
@@ -69,14 +69,9 @@
           <label><input type="radio" name="round-size" id="round-size-square" checked /> Square (matches strip)</label>
           <label><input type="radio" name="round-size" id="round-size-custom" /> Custom size</label>
         </div>
-        <div id="round-custom-fields" class="size-picker-row" hidden>
-          <label>Width
-            <input id="round-custom-width" type="number" min="16" max="4000" step="1" />
-          </label>
-          <span class="size-picker-x">×</span>
-          <label>Height
-            <input id="round-custom-height" type="number" min="16" max="4000" step="1" />
-          </label>
+        <div id="round-custom-fields" class="round-custom-gesture" hidden>
+          <span id="round-custom-size-readout">No size set yet</span>
+          <button id="round-draw-size" type="button" class="btn-secondary">✋ Draw Size With Hands</button>
         </div>
         <button id="round-save-individual" type="button" class="btn-primary round-complete-btn">Save All 4</button>
       </div>
@@ -87,6 +82,12 @@
     </div>
   </div>
 
-  <script src="script.js?v=3" type="module"></script>
+  <!-- Shown only while drawing a custom size with your hands (the
+       round-complete modal itself is hidden during this so the live
+       camera is visible) -- gives an escape hatch back to the modal
+       without needing to complete a pinch. -->
+  <button id="size-gesture-cancel" type="button" class="btn-secondary size-gesture-cancel-btn" hidden>Cancel</button>
+
+  <script src="script.js?v=4" type="module"></script>
 </body>
 </html>

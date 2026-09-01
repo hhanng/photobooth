@@ -302,6 +302,13 @@ html, body {
   font-weight: 600;
 }
 
+.btn-primary:disabled {
+  background: #3c3c3c;
+  border-color: var(--border);
+  color: rgba(255, 255, 255, 0.35);
+  cursor: not-allowed;
+}
+
 /* Round-complete save-choice modal. */
 .round-complete-card {
   width: min(360px, 90vw);
@@ -356,4 +363,39 @@ html, body {
 
 .round-complete-btn {
   width: 100%;
+}
+
+/* Custom size, set by hand gesture rather than typed -- a readout of the
+   currently-drawn size plus a button to (re)draw it. */
+.round-custom-gesture {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.round-custom-gesture[hidden] {
+  display: none;
+}
+
+.round-custom-gesture .btn-secondary {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.size-gesture-cancel-btn {
+  position: fixed;
+  bottom: 2.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  background: rgba(20, 20, 20, 0.85);
+  backdrop-filter: blur(6px);
+}
+
+.size-gesture-cancel-btn[hidden] {
+  display: none;
 }

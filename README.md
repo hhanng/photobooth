@@ -53,13 +53,17 @@ of the (color) video stays normal.
   up asking how to save the round, instead of auto-downloading and
   resetting right away: **Save Strip** downloads the combined strip image
   (as before), and **Save All 4** downloads each of the 4 photos as
-  separate PNGs — either "Square" (the same crop the strip itself uses) or
-  one custom width/height you type in, applied to all 4 (each is
-  cover-cropped to that size individually, so photos with different
-  original aspect ratios don't come out stretched or distorted). Both can
-  be used in the same round if you want both; **Done** is what actually
-  clears the strip for the next round. No new capture can start while this
-  window is open.
+  separate PNGs, either "Square" (the same crop the strip itself uses) or
+  a custom size applied to all 4. The custom size isn't typed — hit
+  "✋ Draw Size With Hands" and the window steps aside to show the live
+  camera again: form the same two-hand thumb/index rectangle as the main
+  frame gesture, then pinch-and-hold for a second to lock it in, exactly
+  like setting up a shot (cancel any time to back out without setting
+  one). Each photo is then cover-cropped to that size individually, so
+  photos with different original aspect ratios don't come out stretched
+  or distorted. Both Save Strip and Save All 4 can be used in the same
+  round if you want both; **Done** is what actually clears the strip for
+  the next round. No new capture can start while this window is open.
 
 ## Status
 
@@ -174,14 +178,29 @@ photo strip + auto-save are all fully implemented:
 - "Save All 4" cover-crops each of the 4 photos individually to the chosen
   size (`cropPhotoToCanvas`, sharing the exact same crop math as the strip
   via `computeCoverCropRect`) — "Square" uses the strip's own slot size,
-  "Custom size" uses whatever width/height was typed — and downloads all 4
-  as separate PNGs, staggered 250ms apart (some browsers throttle several
+  "Custom size" uses whatever was drawn by hand — and downloads all 4 as
+  separate PNGs, staggered 250ms apart (some browsers throttle several
   downloads fired from one click). Confirmed with 4 photos of different
   aspect ratios (square, wide, tall, square) that every cropped canvas
   comes out at exactly the requested size regardless of its source shape,
   and that the crop-then-scale is always a uniform (non-distorting) scale
   by construction, since the cropped region's aspect ratio always matches
   the target's before any scaling happens
+- The custom size is set by gesture, not typed: `RoundCompleteModal.
+  updateSizeGesture()` mirrors the main capture flow's rectangle-forming
+  (both hands' thumb/index tips, EMA-smoothed) and pinch-hold-to-confirm
+  logic almost exactly, but locks in a *size* instead of starting a
+  countdown. It's driven from `mainLoop` itself while `pickingSize` is
+  true (the modal card hides so the live camera is visible underneath) —
+  confirmed via synthetic hand landmarks that the rectangle tracks both
+  hands, a pinch has to be held the same `PINCH_HOLD_MS` before it
+  confirms, and confirming maps the drawn rectangle's on-screen corners
+  back to native video-pixel space with the same `mapCanvasToVideo` math
+  the real photo capture uses — so a bigger hand-drawn rectangle means a
+  bigger exported photo, consistent with how framing works everywhere
+  else in the app. "Save All 4" is disabled whenever "Custom size" is
+  selected but nothing has been drawn yet, and re-enables the instant a
+  size is confirmed; "Cancel" backs out without setting anything
 - Both "Save Strip" and "Save All 4" can be used in the same round (verified
   by triggering both and checking all 5 resulting downloads); only "Done"
   actually calls `PhotoStrip.reset()` — confirmed clicking it clears
@@ -244,8 +263,9 @@ beforehand to see each captured photo logged with a thumbnail. You can
 click the small save button on any filled slot to download just that one
 photo at a custom size along the way. Repeat 4 times to fill the strip
 (docked left) and a window pops up asking how to save the round — the
-combined strip, all 4 photos individually (square or a custom size you
-type in), or both — with "Done" clearing the strip for the next round.
+combined strip, all 4 photos individually (square, or a custom size you
+draw with your hands the same way you framed the shots), or both — with
+"Done" clearing the strip for the next round.
 
 ## Files
 
