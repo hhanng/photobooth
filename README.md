@@ -52,12 +52,26 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   is what gets baked in, so you can keep cycling styles during the
   countdown if you change your mind), a shutter flash fires, and the
   frame unlocks — ready to pinch-and-hold again for the next shot.
-- **Photo strip** — a classic cream photobooth strip, docked flush to the
-  left edge, running the full height of the screen (straight, no tilt)
-  with 4 square slots, thin margins/gaps, and a proportionally larger
-  bottom margin like a real strip's "tail". Each capture fills the next
-  slot; empty slots show a dimmed, numbered placeholder so you can see how
-  many shots remain.
+- **Photo strip** — a classic photobooth strip, docked flush to the left
+  edge, running the full height of the screen (straight, no tilt) with 4
+  square slots, thin margins/gaps, and a proportionally larger bottom
+  margin like a real strip's "tail". The space behind and between the
+  photos is filled with the selected background pattern (see below), and
+  every composed/downloaded strip gets a small "/by hhan/" signature
+  caption in the bottom margin, regardless of pattern. Each capture fills
+  the next slot; empty slots show a dimmed, numbered placeholder so you
+  can see how many shots remain.
+- **Strip background pattern** — a row of round swatches, bottom-right,
+  one per available pattern (starts with a single red-stripe fabric
+  pattern; more can be added just by listing more image paths). Click a
+  swatch to select it directly, or hover **BOTH** index fingertips (one
+  from each hand) over the same swatch together for half a second — a
+  radial ring fills in around it as feedback, and moving either fingertip
+  off before it completes cancels the selection. Whichever pattern is
+  selected fills the strip's background tiled (not stretched, so the
+  fabric stripes don't look distorted), and applies to whichever strip is
+  actually composed next — changing it mid-round doesn't retroactively
+  affect a strip already in progress.
 - **Save a photo at a custom size** — every filled strip slot has a small
   save button in its corner. Click it to open a size picker (prefilled
   with that photo's actual dimensions) where you can type whatever
@@ -277,6 +291,34 @@ photo strip + auto-save are all fully implemented:
   capture logic runs, confirmed `CaptureState.phase` never advances while
   it's open. The (?) button and a click on the dimmed backdrop both call
   the same `close()`
+- `STRIP_PATTERNS` is just a list of image paths — `PatternPicker.init()`
+  builds one swatch button per entry, so adding a pattern later is only
+  ever appending a path there, nothing else to touch. Each composed strip
+  reads `StripPatternState.index` fresh via `fillStripBackground()`, which
+  fills the canvas with `ctx.createPattern(img, "repeat")` (falling back
+  to the old flat cream color if the image hasn't finished loading) —
+  tiled rather than stretched, so the fabric stripe motif doesn't distort.
+  The on-screen strip mirrors the same selection through a `--strip-pattern`
+  CSS custom property, updated by `updateOnScreenStripPattern()` whenever
+  the selection changes
+- `PatternPicker.updateDwell()` runs every frame regardless of
+  `CaptureState.phase` (confirmed it still arms during a forced
+  `"countdown"` phase) — it requires **both** hands' index fingertips
+  (landmark 8) inside the *same* swatch's `getBoundingClientRect()`
+  simultaneously; either hand missing, or the two on different swatches,
+  resets the dwell entirely. Verified the full sequence with synthetic
+  landmarks: one hand alone never arms it, both hands together arms it,
+  progress reaches exactly 0.5 at the halfway point, either fingertip
+  leaving before completion cancels and zeroes the ring, and re-entering
+  together and holding past `PATTERN_DWELL_MS` selects it — confirmed by
+  checking `StripPatternState.index` actually changed, not just the dwell
+  state
+- `drawStripSignature()` draws `STRIP_SIGNATURE_TEXT` ("/by hhan/") in
+  plain black text, centered in the bottom margin band, sized as a
+  fraction of that band's height — confirmed by rendering a real composed
+  strip and visually inspecting the bottom margin, on top of the pattern,
+  present regardless of which pattern is selected since it's the very
+  last thing drawn onto the canvas
 
 Not yet built: gesture/pose validation (right now the rectangle shows
 whenever both hands are simply detected, not specifically when fingers
@@ -321,15 +363,18 @@ hold for a full second (watch the small progress ring at the pinch point)
 to lock it in and start the 4-second countdown; open the console
 beforehand to see each captured photo logged with a thumbnail. You can
 click the small save button on any filled slot to download just that one
-photo at a custom size along the way. Repeat 4 times to fill the strip
-(docked left) and a window pops up asking how to save the round — the
-combined strip, all 4 photos individually (square, or a custom size you
-draw with your hands the same way you framed the shots), or both — with
-"Done" clearing the strip for the next round.
+photo at a custom size along the way, and click (or two-hand dwell on) a
+swatch bottom-right to change the strip's background pattern. Repeat 4
+times to fill the strip (docked left) and a window pops up asking how to
+save the round — the combined strip (patterned background, "/by hhan/"
+caption at the bottom), all 4 photos individually (square, or a custom
+size you draw with your hands the same way you framed the shots), or
+both — with "Done" clearing the strip for the next round.
 
 ## Files
 
-- `index.html` — page structure: full-screen mirrored webcam video, overlay canvas, status bar, photo strip, style label, help button + guide modal, custom-size save modal, round-complete save-choice modal
-- `style.css` — full-bleed layout, styling, the photobooth-strip look, the style label, the help button/modal, the slot save button, and the other modals
-- `script.js` — webcam init, canvas setup, MediaPipe hand tracking, the viewfinder/style-presets/strip-crop-guide/capture/photo-strip logic, the `SizePicker` custom-size save modal, and the `RoundCompleteModal` save-choice modal
+- `index.html` — page structure: full-screen mirrored webcam video, overlay canvas, status bar, photo strip, style label, pattern picker, help button + guide modal, custom-size save modal, round-complete save-choice modal
+- `style.css` — full-bleed layout, styling, the photobooth-strip look, the style label, the pattern swatches, the help button/modal, the slot save button, and the other modals
+- `script.js` — webcam init, canvas setup, MediaPipe hand tracking, the viewfinder/style-presets/strip-crop-guide/capture/photo-strip logic, the `SizePicker` custom-size save modal, the `RoundCompleteModal` save-choice modal, and the `PatternPicker` strip background picker
 - `assets/scrapbook-overlay.png` — the decorative stars/sparkles overlay used by the Star Scrapbook style
+- `assets/strip-patterns/red-stripes.png` — the default strip background pattern

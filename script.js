@@ -191,9 +191,49 @@ const STRIP_GAP_RATIO = 0.1;
 const STRIP_BOTTOM_MARGIN_RATIO = 0.35;
 
 const STRIP_COMPOSE_SLOT_SIZE = 480; // px -- square, both on-screen and here
-const STRIP_COMPOSE_BG = "#f5f0e6";
+const STRIP_COMPOSE_BG = "#f5f0e6"; // fallback, used only if the selected pattern image hasn't loaded yet
 const STRIP_COMPOSE_BORDER = "#d9d0ba";
 const STRIP_COMPOSE_BORDER_WIDTH = 3;
+
+// Small caption baked into every composed/downloaded strip, bottom margin
+// area, regardless of which background pattern is selected.
+const STRIP_SIGNATURE_TEXT = "/by hhan/";
+// -------------------------------------------------------------------------
+
+// --- Strip background patterns -------------------------------------------
+// A simple list of pattern image paths -- just append another path here to
+// add a new selectable option, no other code changes needed. Whichever one
+// is selected fills the strip's background (behind/between the 4 photos),
+// tiled rather than stretched so it doesn't look distorted.
+const STRIP_PATTERNS = ["assets/strip-patterns/red-stripes.png"];
+const PATTERN_DWELL_MS = 500; // both index fingertips together on one swatch
+
+// Loaded once at startup, keyed by path -- see preloadStripPatterns().
+const stripPatternImages = {};
+
+function preloadStripPatterns() {
+  for (const path of STRIP_PATTERNS) {
+    const img = new Image();
+    img.src = path;
+    stripPatternImages[path] = img;
+  }
+}
+
+// Which pattern is currently selected -- read fresh by composeStripImage()
+// at the moment a strip is actually composed, so changing the selection
+// mid-round applies to whichever strip is finished next, not one already
+// in progress.
+const StripPatternState = {
+  index: 0,
+};
+
+// Reflects the current selection onto the live on-screen strip's CSS
+// background (the composed/downloaded image reads StripPatternState.index
+// directly in composeStripImage, independent of this).
+function updateOnScreenStripPattern() {
+  const path = STRIP_PATTERNS[StripPatternState.index];
+  document.documentElement.style.setProperty("--strip-pattern", `url("${path}")`);
+}
 // -------------------------------------------------------------------------
 
 const Webcam = {
@@ -804,8 +844,37 @@ function cropPhotoToCanvas(photo, width, height) {
   return canvas;
 }
 
+// Fills the whole canvas with the currently-selected strip pattern,
+// tiled (not stretched) so the fabric-stripe look doesn't get distorted --
+// falls back to the plain cream fill if the image somehow hasn't finished
+// loading yet. Read fresh every time a strip is composed, so switching
+// patterns mid-round applies to whichever strip finishes next.
+function fillStripBackground(ctx, width, height) {
+  const path = STRIP_PATTERNS[StripPatternState.index];
+  const img = stripPatternImages[path];
+  if (img && img.complete && img.naturalWidth > 0) {
+    ctx.fillStyle = ctx.createPattern(img, "repeat");
+  } else {
+    ctx.fillStyle = STRIP_COMPOSE_BG;
+  }
+  ctx.fillRect(0, 0, width, height);
+}
+
+// Small studio-style caption baked into the bottom margin band of every
+// composed strip, regardless of pattern -- plain black text, subtle size.
+function drawStripSignature(ctx, canvasWidth, bottomAreaY, bottomAreaHeight) {
+  const fontSize = Math.max(10, Math.round(bottomAreaHeight * 0.16));
+  ctx.save();
+  ctx.fillStyle = "#000";
+  ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(STRIP_SIGNATURE_TEXT, canvasWidth / 2, bottomAreaY + bottomAreaHeight / 2);
+  ctx.restore();
+}
+
 // Composes all 4 photos into one vertical strip image, matching the
-// on-screen strip's visual style (cream background, thin borders,
+// on-screen strip's visual style (patterned background, thin borders,
 // spacing between photos).
 function composeStripImage(photos) {
   // Same ratios as the on-screen strip (see PhotoStrip.layout), applied
@@ -817,21 +886,23 @@ function composeStripImage(photos) {
   const bottomMargin = slotSize * STRIP_BOTTOM_MARGIN_RATIO;
 
   const totalW = slotSize + sideMargin * 2;
-  const totalH = topMargin + slotSize * photos.length + gap * (photos.length - 1) + bottomMargin;
+  const photosBottomY = topMargin + slotSize * photos.length + gap * (photos.length - 1);
+  const totalH = photosBottomY + bottomMargin;
 
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(totalW);
   canvas.height = Math.round(totalH);
   const ctx = canvas.getContext("2d");
 
-  ctx.fillStyle = STRIP_COMPOSE_BG;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  fillStripBackground(ctx, canvas.width, canvas.height);
 
   photos.forEach((photo, i) => {
     const slotX = sideMargin;
     const slotY = topMargin + i * (slotSize + gap);
     drawStripSlotImage(ctx, photo, slotX, slotY, slotSize, slotSize);
   });
+
+  drawStripSignature(ctx, canvas.width, photosBottomY, bottomMargin);
 
   return canvas;
 }
@@ -1183,6 +1254,117 @@ const HelpModal = {
 };
 // -------------------------------------------------------------------------
 
+// --- Strip pattern picker ------------------------------------------------
+// A small row of clickable swatches (one per STRIP_PATTERNS entry), built
+// dynamically so adding a new pattern later is just appending a path
+// above -- no other code changes. Selectable by mouse click, or by BOTH
+// index fingertips (one per hand) hovering the same swatch together for
+// PATTERN_DWELL_MS, mirroring the old skip button's single-fingertip dwell
+// but requiring both hands at once.
+const PatternPicker = {
+  containerEl: null,
+  swatchEls: [],
+  ringEls: [],
+  dwellSwatchIndex: null,
+  dwellStartMs: null,
+
+  init() {
+    this.containerEl = document.getElementById("pattern-picker");
+    STRIP_PATTERNS.forEach((path, i) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "pattern-swatch";
+      btn.title = "Strip background pattern";
+      btn.style.backgroundImage = `url("${path}")`;
+      btn.addEventListener("click", () => this.select(i));
+
+      const ring = document.createElement("span");
+      ring.className = "pattern-swatch-ring";
+      btn.appendChild(ring);
+
+      this.containerEl.appendChild(btn);
+      this.swatchEls.push(btn);
+      this.ringEls.push(ring);
+    });
+    this._updateActiveClass();
+    updateOnScreenStripPattern();
+  },
+
+  select(i) {
+    StripPatternState.index = i;
+    this._updateActiveClass();
+    updateOnScreenStripPattern();
+  },
+
+  _updateActiveClass() {
+    this.swatchEls.forEach((el, i) => el.classList.toggle("active", i === StripPatternState.index));
+  },
+
+  // Called every frame, independent of CaptureState.phase -- choosing a
+  // strip pattern isn't part of the capture flow, so it works regardless
+  // of whether a frame is currently being formed.
+  updateDwell(nowMs, hands, videoW, videoH) {
+    if (this.swatchEls.length === 0) return;
+
+    const leftHand = hands.find((h) => h.handedness === "Left") || null;
+    const rightHand = hands.find((h) => h.handedness === "Right") || null;
+    if (!leftHand || !rightHand) {
+      this._resetDwell();
+      return;
+    }
+
+    const leftTipLm = leftHand.landmarks[INDEX_TIP];
+    const rightTipLm = rightHand.landmarks[INDEX_TIP];
+    const leftTip = mapVideoToCanvas(leftTipLm.x, leftTipLm.y, videoW, videoH, Canvas.width, Canvas.height);
+    const rightTip = mapVideoToCanvas(rightTipLm.x, rightTipLm.y, videoW, videoH, Canvas.width, Canvas.height);
+
+    let hoveredIndex = null;
+    for (let i = 0; i < this.swatchEls.length; i++) {
+      const rect = this.swatchEls[i].getBoundingClientRect();
+      const leftInside = leftTip.x >= rect.left && leftTip.x <= rect.right && leftTip.y >= rect.top && leftTip.y <= rect.bottom;
+      const rightInside = rightTip.x >= rect.left && rightTip.x <= rect.right && rightTip.y >= rect.top && rightTip.y <= rect.bottom;
+      if (leftInside && rightInside) {
+        hoveredIndex = i;
+        break;
+      }
+    }
+
+    if (hoveredIndex === null) {
+      this._resetDwell();
+      return;
+    }
+
+    if (this.dwellSwatchIndex !== hoveredIndex) {
+      this.dwellSwatchIndex = hoveredIndex;
+      this.dwellStartMs = nowMs;
+    }
+
+    const progress = clamp((nowMs - this.dwellStartMs) / PATTERN_DWELL_MS, 0, 1);
+    this.ringEls[hoveredIndex].style.setProperty("--dwell-progress", String(progress));
+    this.swatchEls[hoveredIndex].classList.add("dwelling");
+    for (let i = 0; i < this.swatchEls.length; i++) {
+      if (i === hoveredIndex) continue;
+      this.swatchEls[i].classList.remove("dwelling");
+      this.ringEls[i].style.setProperty("--dwell-progress", "0");
+    }
+
+    if (progress >= 1) {
+      this.select(hoveredIndex);
+      this._resetDwell();
+    }
+  },
+
+  _resetDwell() {
+    this.dwellSwatchIndex = null;
+    this.dwellStartMs = null;
+    this.swatchEls.forEach((el, i) => {
+      el.classList.remove("dwelling");
+      this.ringEls[i].style.setProperty("--dwell-progress", "0");
+    });
+  },
+};
+// -------------------------------------------------------------------------
+
 function setStatus(elementId, label, state) {
   const el = document.getElementById(elementId);
   el.textContent = label;
@@ -1218,6 +1400,11 @@ function mainLoop(nowMs) {
     requestAnimationFrame(mainLoop);
     return;
   }
+
+  // Independent of the capture flow's phase -- picking a strip pattern
+  // isn't part of framing/capturing, so it works the same whether you're
+  // idle, mid-countdown, or in the flash.
+  PatternPicker.updateDwell(nowMs, hands, videoW, videoH);
 
   const rightHand = hands.find((h) => h.handedness === "Right") || null;
   const leftHand = hands.find((h) => h.handedness === "Left") || null;
@@ -1320,7 +1507,9 @@ async function init() {
   initGrain();
   preloadStyleOverlays();
   updateStyleLabel();
+  preloadStripPatterns();
   PhotoStrip.init();
+  PatternPicker.init();
   SizePicker.init();
   RoundCompleteModal.init();
   HelpModal.init();

@@ -9,7 +9,7 @@
        time script.js/style.css change, or returning visitors' browsers
        can silently keep serving an old cached copy for up to 10 minutes
        (or longer, depending on the browser) after a new deploy. -->
-  <link rel="stylesheet" href="style.css?v=6" />
+  <link rel="stylesheet" href="style.css?v=7" />
 </head>
 <body>
   <video id="webcam-video" autoplay muted playsinline></video>
@@ -27,6 +27,11 @@
        (not just while framing) so you know what's selected before you
        start. -->
   <div id="style-label" aria-live="polite">Vintage B&amp;W</div>
+
+  <!-- Strip background pattern picker -- swatches populated dynamically
+       in JS from STRIP_PATTERNS. Click one directly, or hover BOTH index
+       fingertips over the same swatch for 0.5s. -->
+  <div id="pattern-picker" aria-label="Strip background pattern"></div>
 
   <!-- Help: opens automatically on page load, and can be reopened anytime
        via the (?) button. -->
@@ -125,6 +130,6 @@
        without needing to complete a pinch. -->
   <button id="size-gesture-cancel" type="button" class="btn-secondary size-gesture-cancel-btn" hidden>Cancel</button>
 
-  <script src="script.js?v=6" type="module"></script>
+  <script src="script.js?v=7" type="module"></script>
 </body>
 </html>
