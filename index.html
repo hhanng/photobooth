@@ -9,7 +9,7 @@
        time script.js/style.css change, or returning visitors' browsers
        can silently keep serving an old cached copy for up to 10 minutes
        (or longer, depending on the browser) after a new deploy. -->
-  <link rel="stylesheet" href="style.css?v=2" />
+  <link rel="stylesheet" href="style.css?v=3" />
 </head>
 <body>
   <video id="webcam-video" autoplay muted playsinline></video>
@@ -50,6 +50,43 @@
     </div>
   </div>
 
-  <script src="script.js?v=2" type="module"></script>
+  <!-- Round-complete save choice: shown once all 4 strip slots fill.
+       Choosing "Save Strip" and/or "Save All 4" can both be done before
+       finishing -- only "Done" resets the round for the next one. -->
+  <div id="round-complete-overlay" class="modal-overlay" hidden>
+    <div class="modal-card round-complete-card">
+      <h3>4 Photos Ready</h3>
+      <div id="round-complete-thumbs" class="round-complete-thumbs"></div>
+
+      <div class="round-complete-section">
+        <p class="round-complete-label">Combined strip</p>
+        <button id="round-save-strip" type="button" class="btn-primary round-complete-btn">Save Strip</button>
+      </div>
+
+      <div class="round-complete-section">
+        <p class="round-complete-label">Each photo individually</p>
+        <div class="round-size-choice">
+          <label><input type="radio" name="round-size" id="round-size-square" checked /> Square (matches strip)</label>
+          <label><input type="radio" name="round-size" id="round-size-custom" /> Custom size</label>
+        </div>
+        <div id="round-custom-fields" class="size-picker-row" hidden>
+          <label>Width
+            <input id="round-custom-width" type="number" min="16" max="4000" step="1" />
+          </label>
+          <span class="size-picker-x">×</span>
+          <label>Height
+            <input id="round-custom-height" type="number" min="16" max="4000" step="1" />
+          </label>
+        </div>
+        <button id="round-save-individual" type="button" class="btn-primary round-complete-btn">Save All 4</button>
+      </div>
+
+      <div class="modal-actions">
+        <button id="round-done" type="button" class="btn-secondary">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js?v=3" type="module"></script>
 </body>
 </html>

@@ -654,8 +654,10 @@ const PhotoStrip = {
     slot.appendChild(saveBtn);
 
     if (this.photos.length === STRIP_SLOT_COUNT) {
-      composeAndDownloadStrip(this.photos);
-      this.reset();
+      // Hand off to the round-complete modal to ask how to save this
+      // round, instead of auto-downloading the strip -- it's responsible
+      // for calling PhotoStrip.reset() once the user is done.
+      RoundCompleteModal.open(this.photos);
     }
   },
 
@@ -665,24 +667,28 @@ const PhotoStrip = {
   },
 };
 
+// Computes the source rect a "cover"-style fit would keep -- fills the
+// whole destination box with no distortion by cropping whichever source
+// dimension has the excess, instead of stretching. Shared by the strip
+// compositing below and the individual-photo batch save.
+function computeCoverCropRect(srcW, srcH, dstW, dstH) {
+  const srcAspect = srcW / srcH;
+  const dstAspect = dstW / dstH;
+  if (srcAspect > dstAspect) {
+    const sh = srcH;
+    const sw = sh * dstAspect;
+    return { sx: (srcW - sw) / 2, sy: 0, sw, sh };
+  }
+  const sw = srcW;
+  const sh = sw / dstAspect;
+  return { sx: 0, sy: (srcH - sh) / 2, sw, sh };
+}
+
 // Draws one photo into the composed strip canvas, cropped ("cover"-style)
 // to the slot's aspect ratio since captured photos can be any aspect
 // ratio the user happened to frame.
 function drawStripSlotImage(ctx, photo, slotX, slotY, slotW, slotH) {
-  const srcAspect = photo.width / photo.height;
-  const dstAspect = slotW / slotH;
-  let sx, sy, sw, sh;
-  if (srcAspect > dstAspect) {
-    sh = photo.height;
-    sw = sh * dstAspect;
-    sx = (photo.width - sw) / 2;
-    sy = 0;
-  } else {
-    sw = photo.width;
-    sh = sw / dstAspect;
-    sx = 0;
-    sy = (photo.height - sh) / 2;
-  }
+  const { sx, sy, sw, sh } = computeCoverCropRect(photo.width, photo.height, slotW, slotH);
 
   ctx.fillStyle = STRIP_COMPOSE_BORDER;
   ctx.fillRect(
@@ -692,6 +698,20 @@ function drawStripSlotImage(ctx, photo, slotX, slotY, slotW, slotH) {
     slotH + STRIP_COMPOSE_BORDER_WIDTH * 2
   );
   ctx.drawImage(photo.canvas, sx, sy, sw, sh, slotX, slotY, slotW, slotH);
+}
+
+// Cover-crops one photo into a fresh canvas at the exact target size --
+// used by the round-complete modal's "save individually" option, for both
+// the "square" default and a custom width/height, so a batch of photos
+// with different original aspect ratios all come out undistorted.
+function cropPhotoToCanvas(photo, width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  const { sx, sy, sw, sh } = computeCoverCropRect(photo.width, photo.height, width, height);
+  ctx.drawImage(photo.canvas, sx, sy, sw, sh, 0, 0, width, height);
+  return canvas;
 }
 
 // Composes all 4 photos into one vertical strip image, matching the
@@ -820,6 +840,98 @@ const SizePicker = {
 };
 // -------------------------------------------------------------------------
 
+// --- Round-complete save choice --------------------------------------------
+// Once all 4 slots fill, the round no longer auto-downloads the strip and
+// resets by itself -- this modal asks how to save it: the combined strip
+// (as before), each photo individually (square, matching the strip crop,
+// or one custom width/height applied to all 4), or both. `isOpen` gates
+// mainLoop so no new capture can start while this is up; closing it is
+// what finally resets the round for the next one.
+const ROUND_INDIVIDUAL_STAGGER_MS = 250; // between each of the 4 downloads -- some browsers throttle several fired from one click
+
+const RoundCompleteModal = {
+  isOpen: false,
+  overlayEl: null,
+  thumbsEl: null,
+  squareRadioEl: null,
+  customRadioEl: null,
+  customFieldsEl: null,
+  customWidthEl: null,
+  customHeightEl: null,
+  photos: null,
+
+  init() {
+    this.overlayEl = document.getElementById("round-complete-overlay");
+    this.thumbsEl = document.getElementById("round-complete-thumbs");
+    this.squareRadioEl = document.getElementById("round-size-square");
+    this.customRadioEl = document.getElementById("round-size-custom");
+    this.customFieldsEl = document.getElementById("round-custom-fields");
+    this.customWidthEl = document.getElementById("round-custom-width");
+    this.customHeightEl = document.getElementById("round-custom-height");
+
+    const syncCustomFieldsVisibility = () => {
+      this.customFieldsEl.hidden = !this.customRadioEl.checked;
+    };
+    this.squareRadioEl.addEventListener("change", syncCustomFieldsVisibility);
+    this.customRadioEl.addEventListener("change", syncCustomFieldsVisibility);
+
+    document.getElementById("round-save-strip").addEventListener("click", () => this.saveStrip());
+    document.getElementById("round-save-individual").addEventListener("click", () => this.saveIndividual());
+    document.getElementById("round-done").addEventListener("click", () => this.close());
+  },
+
+  open(photos) {
+    this.photos = photos;
+    this.isOpen = true;
+
+    this.thumbsEl.innerHTML = "";
+    photos.forEach((photo) => {
+      const img = document.createElement("img");
+      img.src = photo.dataUrl;
+      img.className = "round-thumb";
+      this.thumbsEl.appendChild(img);
+    });
+
+    this.squareRadioEl.checked = true;
+    this.customFieldsEl.hidden = true;
+    this.customWidthEl.value = STRIP_COMPOSE_SLOT_SIZE;
+    this.customHeightEl.value = STRIP_COMPOSE_SLOT_SIZE;
+
+    this.overlayEl.hidden = false;
+  },
+
+  close() {
+    this.isOpen = false;
+    this.overlayEl.hidden = true;
+    this.photos = null;
+    PhotoStrip.reset();
+  },
+
+  saveStrip() {
+    if (!this.photos) return;
+    composeAndDownloadStrip(this.photos);
+  },
+
+  saveIndividual() {
+    if (!this.photos) return;
+    const useSquare = this.squareRadioEl.checked;
+    const width = useSquare
+      ? STRIP_COMPOSE_SLOT_SIZE
+      : Math.max(1, parseInt(this.customWidthEl.value, 10) || STRIP_COMPOSE_SLOT_SIZE);
+    const height = useSquare
+      ? STRIP_COMPOSE_SLOT_SIZE
+      : Math.max(1, parseInt(this.customHeightEl.value, 10) || STRIP_COMPOSE_SLOT_SIZE);
+
+    this.photos.forEach((photo, i) => {
+      setTimeout(() => {
+        const canvas = cropPhotoToCanvas(photo, width, height);
+        downloadCanvasAsPng(canvas, `photobooth-photo-${i + 1}-${photo.timestamp}-${width}x${height}.png`);
+      }, i * ROUND_INDIVIDUAL_STAGGER_MS);
+    });
+  },
+};
+// -------------------------------------------------------------------------
+
 function setStatus(elementId, label, state) {
   const el = document.getElementById(elementId);
   el.textContent = label;
@@ -830,6 +942,15 @@ function setStatus(elementId, label, state) {
 function mainLoop(nowMs) {
   Canvas.clear();
   grainFrameCounter++;
+
+  // Freeze the live gesture flow while the round-complete modal is up --
+  // nothing to track/draw underneath it, and no new capture should be
+  // able to start until the round is finalized (the strip is already
+  // full, so a capture right now would just be silently dropped anyway).
+  if (RoundCompleteModal.isOpen) {
+    requestAnimationFrame(mainLoop);
+    return;
+  }
 
   const video = Webcam.videoEl;
   const hands = video && video.readyState >= 2 && video.videoWidth ? HandTracker.detect(video, nowMs) : [];
@@ -925,6 +1046,7 @@ async function init() {
   initGrain();
   PhotoStrip.init();
   SizePicker.init();
+  RoundCompleteModal.init();
   await Promise.all([Webcam.init(), HandTracker.init()]);
   requestAnimationFrame(mainLoop);
 }

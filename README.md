@@ -41,10 +41,7 @@ of the (color) video stays normal.
   with 4 square slots, thin margins/gaps, and a proportionally larger
   bottom margin like a real strip's "tail". Each capture fills the next
   slot; empty slots show a dimmed, numbered placeholder so you can see how
-  many shots remain. Once all 4 are filled, the strip auto-composes and
-  downloads a single combined image (matching the on-screen strip's
-  proportions) and resets itself for a fresh round — no button click
-  needed.
+  many shots remain.
 - **Save a photo at a custom size** — every filled strip slot has a small
   save button in its corner. Click it to open a size picker (prefilled
   with that photo's actual dimensions) where you can type whatever
@@ -52,6 +49,17 @@ of the (color) video stays normal.
   adjusting one field scales the other to match — and download just that
   one photo as a PNG at exactly the size you asked for, independent of the
   strip's fixed square slots.
+- **Round-complete save choice** — once the 4th slot fills, a window pops
+  up asking how to save the round, instead of auto-downloading and
+  resetting right away: **Save Strip** downloads the combined strip image
+  (as before), and **Save All 4** downloads each of the 4 photos as
+  separate PNGs — either "Square" (the same crop the strip itself uses) or
+  one custom width/height you type in, applied to all 4 (each is
+  cover-cropped to that size individually, so photos with different
+  original aspect ratios don't come out stretched or distorted). Both can
+  be used in the same round if you want both; **Done** is what actually
+  clears the strip for the next round. No new capture can start while this
+  window is open.
 
 ## Status
 
@@ -151,18 +159,34 @@ photo strip + auto-save are all fully implemented:
   element, so the strip's CSS always exactly spans top to bottom with
   square slots at any viewport size, and `#status-bar` reads the same
   `--strip-width` variable to avoid overlapping it. Re-run on `resize`
-- Once the 4th slot fills, `composeAndDownloadStrip()` re-crops each
-  photo ("cover"-style, since captures can be any aspect ratio) into a
-  cream-background canvas matching the on-screen strip's spacing/borders,
-  then triggers a real browser download (`canvas.toBlob` →
-  `URL.createObjectURL` → a temporary `<a download>` click) named
-  `photobooth-strip-<timestamp>.png` — confirmed via intercepting the
-  actual `click()` call that exactly one download fires, with the
-  correct filename pattern and a valid `blob:` URL, and confirmed the
-  composed canvas's exact pixel dimensions and each slot's distinct
-  content/order by sampling pixels directly
-- Immediately after composing, the strip resets (all 4 slots back to
-  dimmed placeholders) — confirmed visually and via state inspection
+- Once the 4th slot fills, `PhotoStrip.addPhoto()` hands off to
+  `RoundCompleteModal` instead of auto-downloading — `mainLoop` checks
+  `RoundCompleteModal.isOpen` right at the top and skips all
+  frame-detection/pinch-hold/capture logic entirely while it's up (same
+  early-return-gate pattern used for the old puzzle mini-game), so a
+  capture can't start mid-decision and land on an already-full strip
+- `RoundCompleteModal`'s "Save Strip" button calls `composeAndDownloadStrip()`,
+  which re-crops each photo ("cover"-style, since captures can be any
+  aspect ratio) into a cream-background canvas matching the on-screen
+  strip's spacing/borders, then triggers a real browser download
+  (`canvas.toBlob` → `URL.createObjectURL` → a temporary `<a download>`
+  click) named `photobooth-strip-<timestamp>.png`
+- "Save All 4" cover-crops each of the 4 photos individually to the chosen
+  size (`cropPhotoToCanvas`, sharing the exact same crop math as the strip
+  via `computeCoverCropRect`) — "Square" uses the strip's own slot size,
+  "Custom size" uses whatever width/height was typed — and downloads all 4
+  as separate PNGs, staggered 250ms apart (some browsers throttle several
+  downloads fired from one click). Confirmed with 4 photos of different
+  aspect ratios (square, wide, tall, square) that every cropped canvas
+  comes out at exactly the requested size regardless of its source shape,
+  and that the crop-then-scale is always a uniform (non-distorting) scale
+  by construction, since the cropped region's aspect ratio always matches
+  the target's before any scaling happens
+- Both "Save Strip" and "Save All 4" can be used in the same round (verified
+  by triggering both and checking all 5 resulting downloads); only "Done"
+  actually calls `PhotoStrip.reset()` — confirmed clicking it clears
+  `RoundCompleteModal.isOpen`, hides the modal, and resets all 4 slots back
+  to dimmed placeholders
 - The strip crop guide (`drawStripCropGuide`) computes a square of side
   `min(rectW, rectH)` centered in the live rectangle — the exact same
   "cover"-crop math `drawStripSlotImage` uses when compositing the strip —
@@ -216,13 +240,15 @@ inside, normal color outside, plus a smaller dashed gold square marking
 the actual strip crop. Pinch your right hand's thumb and index together
 and hold for a full second (watch the small progress ring at the pinch
 point) to lock it in and start the 4-second countdown; open the console
-beforehand to see each captured photo logged with a thumbnail. Repeat 4
-times to fill the strip (docked left) and get an automatic download of
-the combined image — or click the small save button on any filled slot
-first to download just that one photo at a custom size.
+beforehand to see each captured photo logged with a thumbnail. You can
+click the small save button on any filled slot to download just that one
+photo at a custom size along the way. Repeat 4 times to fill the strip
+(docked left) and a window pops up asking how to save the round — the
+combined strip, all 4 photos individually (square or a custom size you
+type in), or both — with "Done" clearing the strip for the next round.
 
 ## Files
 
-- `index.html` — page structure: full-screen mirrored webcam video, overlay canvas, status bar, photo strip, custom-size save modal
-- `style.css` — full-bleed layout, styling, the photobooth-strip look, the slot save button, and the save-size modal
-- `script.js` — webcam init, canvas setup, MediaPipe hand tracking, the viewfinder/vintage-crop/grain/strip-crop-guide/capture/photo-strip logic, and the `SizePicker` custom-size save modal
+- `index.html` — page structure: full-screen mirrored webcam video, overlay canvas, status bar, photo strip, custom-size save modal, round-complete save-choice modal
+- `style.css` — full-bleed layout, styling, the photobooth-strip look, the slot save button, and both modals
+- `script.js` — webcam init, canvas setup, MediaPipe hand tracking, the viewfinder/vintage-crop/grain/strip-crop-guide/capture/photo-strip logic, the `SizePicker` custom-size save modal, and the `RoundCompleteModal` save-choice modal
