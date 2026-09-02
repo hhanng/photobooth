@@ -190,6 +190,14 @@ const STRIP_TOP_MARGIN_RATIO = 0.12;
 const STRIP_GAP_RATIO = 0.1;
 const STRIP_BOTTOM_MARGIN_RATIO = 0.35;
 
+// The strip's total height, in the same "multiples of one slot" units --
+// shared by PhotoStrip.layout() (on-screen, slotSize = window.innerHeight
+// / this) and the pattern-tiling setup below (composed image, whose total
+// height is always STRIP_COMPOSE_SLOT_SIZE * this, since it's always 4
+// fixed-ratio photos).
+const STRIP_TOTAL_RATIO_UNITS =
+  STRIP_TOP_MARGIN_RATIO + STRIP_SLOT_COUNT + STRIP_GAP_RATIO * (STRIP_SLOT_COUNT - 1) + STRIP_BOTTOM_MARGIN_RATIO;
+
 const STRIP_COMPOSE_SLOT_SIZE = 480; // px -- square, both on-screen and here
 const STRIP_COMPOSE_BG = "#f5f0e6"; // fallback, used only if the selected pattern image hasn't loaded yet
 const STRIP_COMPOSE_BORDER = "#d9d0ba";
@@ -215,40 +223,45 @@ const STRIP_PATTERNS = [
 ];
 const PATTERN_DWELL_MS = 500; // both index fingertips together on one swatch
 
-// The source pattern images are much higher-resolution than the strip is
-// wide, so tiling them at native size shows only a tiny, zoomed-in crop of
-// one repeat (looks "stretched" even though nothing is actually being
-// scaled). This is the one knob to retune that: each tile's on-screen
-// width is this fraction of one photo slot's size, so a handful of
-// repeats fit across the strip's width like real wallpaper. Tune this
-// after actually looking at the result -- smaller = more, tinier repeats;
-// larger = fewer, bigger ones.
-const STRIP_PATTERN_TILE_RATIO = 0.16;
+// How many times each pattern repeats vertically down the strip's full
+// height -- the one knob to retune if a pattern looks too small/busy (too
+// many repeats) or too large/loses detail (too few). 2-3 keeps enough of
+// the pattern's actual texture/motif visible per repeat instead of
+// reducing it to visual noise.
+const STRIP_PATTERN_TARGET_REPEATS = 2.5;
 
 // Loaded once at startup, keyed by path -- see preloadStripPatterns().
 const stripPatternImages = {}; // path -> full-res Image
-const stripPatternTileCanvases = {}; // path -> small canvas pre-scaled to STRIP_PATTERN_TILE_RATIO, for ctx.createPattern
+const stripPatternTileCanvases = {}; // path -> small canvas pre-scaled per STRIP_PATTERN_TARGET_REPEATS, for ctx.createPattern
 
 function preloadStripPatterns() {
+  // The composed strip's total height is fixed (always 4 photos at
+  // STRIP_COMPOSE_SLOT_SIZE's ratios), so the target tile height for it
+  // can be computed once, up front, rather than per-composition.
+  const composedStripHeight = STRIP_COMPOSE_SLOT_SIZE * STRIP_TOTAL_RATIO_UNITS;
+  const tileHeight = composedStripHeight / STRIP_PATTERN_TARGET_REPEATS;
+
   for (const path of STRIP_PATTERNS) {
     const img = new Image();
     img.onload = () => {
-      stripPatternTileCanvases[path] = scalePatternForTiling(img, STRIP_COMPOSE_SLOT_SIZE * STRIP_PATTERN_TILE_RATIO);
+      stripPatternTileCanvases[path] = scalePatternForTiling(img, tileHeight);
     };
     img.src = path;
     stripPatternImages[path] = img;
   }
 }
 
-// Draws `img` down to a small canvas `targetWidth` wide (aspect-preserved)
-// -- this smaller canvas, not the original full-res image, is what gets
-// handed to ctx.createPattern for the composed strip, so each repeat
+// Draws `img` down to a small canvas `targetHeight` tall (aspect-preserved
+// width) -- this smaller canvas, not the original full-res image, is what
+// gets handed to ctx.createPattern for the composed strip, so each repeat
 // actually reads as the intended tile size instead of a native-resolution
-// crop of the source.
-function scalePatternForTiling(img, targetWidth) {
-  const aspect = img.naturalHeight / img.naturalWidth;
-  const w = Math.max(1, Math.round(targetWidth));
-  const h = Math.max(1, Math.round(targetWidth * aspect));
+// crop of the source. Scaling by height (not width) is what lets
+// STRIP_PATTERN_TARGET_REPEATS directly control "how many times down the
+// strip" regardless of a pattern's own aspect ratio.
+function scalePatternForTiling(img, targetHeight) {
+  const aspect = img.naturalWidth / img.naturalHeight;
+  const h = Math.max(1, Math.round(targetHeight));
+  const w = Math.max(1, Math.round(targetHeight * aspect));
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
@@ -769,9 +782,7 @@ const PhotoStrip = {
   // properties, so the strip's CSS always exactly spans top to bottom
   // with square slots, at any viewport size.
   layout() {
-    const totalRatioUnits =
-      STRIP_TOP_MARGIN_RATIO + STRIP_SLOT_COUNT + STRIP_GAP_RATIO * (STRIP_SLOT_COUNT - 1) + STRIP_BOTTOM_MARGIN_RATIO;
-    const slotSize = window.innerHeight / totalRatioUnits;
+    const slotSize = window.innerHeight / STRIP_TOTAL_RATIO_UNITS;
     const sideMargin = slotSize * STRIP_SIDE_MARGIN_RATIO;
     const topMargin = slotSize * STRIP_TOP_MARGIN_RATIO;
     const gap = slotSize * STRIP_GAP_RATIO;
@@ -788,11 +799,12 @@ const PhotoStrip = {
     style.setProperty("--strip-bottom-margin", `${bottomMargin}px`);
     style.setProperty("--strip-gap", `${gap}px`);
     style.setProperty("--strip-width", `${width}px`);
-    // Keeps the on-screen pattern tile proportional to the (responsive)
-    // slot size, using the same ratio the composed/downloaded strip uses
-    // relative to its own fixed-resolution slot size -- see
-    // STRIP_PATTERN_TILE_RATIO for why this exists at all.
-    style.setProperty("--strip-pattern-tile-size", `${slotSize * STRIP_PATTERN_TILE_RATIO}px`);
+    // The strip's total height IS window.innerHeight by construction
+    // (slotSize * STRIP_TOTAL_RATIO_UNITS === window.innerHeight), so
+    // this is the on-screen equivalent of the same tile-height math
+    // preloadStripPatterns() uses for the composed image -- see
+    // STRIP_PATTERN_TARGET_REPEATS for what's actually being tuned here.
+    style.setProperty("--strip-pattern-tile-size", `${window.innerHeight / STRIP_PATTERN_TARGET_REPEATS}px`);
   },
 
   _renderEmptySlot(index) {

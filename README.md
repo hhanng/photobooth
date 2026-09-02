@@ -61,18 +61,19 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   caption in the bottom margin, regardless of pattern. Each capture fills
   the next slot; empty slots show a dimmed, numbered placeholder so you
   can see how many shots remain.
-- **Strip background pattern** — a row of round swatches, bottom-right,
-  one per available pattern: red stripes, blue stars, pink watercolor
-  stars, Starry Night, pink glass tile, and leopard print (more can be
-  added just by listing more image paths). Click a swatch to select it
+- **Strip background pattern** — a column of large round swatches,
+  vertically centered along the right edge of the screen, one per
+  available pattern: red stripes, blue stars, pink watercolor stars,
+  Starry Night, pink glass tile, and leopard print (more can be added
+  just by listing more image paths). Click a swatch to select it
   directly, or hover **BOTH** index fingertips (one from each hand) over
   the same swatch together for half a second — a radial ring fills in
   around it as feedback, and moving either fingertip off before it
   completes cancels the selection. Whichever pattern is selected fills
-  the strip's background tiled at a small, wallpaper-like scale (not
-  stretched or zoomed in), and applies to whichever strip is actually
-  composed next — changing it mid-round doesn't retroactively affect a
-  strip already in progress.
+  the strip's background tiled at a "wallpaper" scale (2-3 repeats down
+  the strip's height, not stretched or reduced to visual noise), and
+  applies to whichever strip is actually composed next — changing it
+  mid-round doesn't retroactively affect a strip already in progress.
 - **Save a photo at a custom size** — every filled strip slot has a small
   save button in its corner. Click it to open a size picker (prefilled
   with that photo's actual dimensions) where you can type whatever
@@ -303,30 +304,45 @@ photo strip + auto-save are all fully implemented:
   the selection changes
 - The source pattern images are much higher-resolution than the strip is
   wide, so tiling them at native size showed only a tiny, zoomed-in crop
-  of one repeat rather than a proper small repeating motif (looked
-  "stretched" even though nothing was actually being scaled up).
-  `STRIP_PATTERN_TILE_RATIO` (one constant, near `STRIP_PATTERNS`) fixes
-  this: each tile's width is that fraction of one photo slot's size, so a
-  handful of repeats fit across the strip like real wallpaper.
+  of one repeat rather than a proper repeating motif with visible detail
+  (looked "stretched" even though nothing was actually being scaled up).
+  `STRIP_PATTERN_TARGET_REPEATS` (one constant, near `STRIP_PATTERNS`,
+  currently 2.5) fixes this directly in the unit that actually matters:
+  how many times a pattern repeats *down the strip's height* — each
+  tile's height is `stripHeight / STRIP_PATTERN_TARGET_REPEATS`, width
+  auto-scaled to preserve the source's own aspect ratio.
   `scalePatternForTiling()` pre-scales each pattern down to a small
-  offscreen canvas once (cached in `stripPatternTileCanvases`, keyed by
-  path) for the composed/downloaded strip, and a matching
-  `--strip-pattern-tile-size` CSS variable (set alongside the other
-  responsive sizing in `PhotoStrip.layout()`, so it stays proportional to
-  the actual on-screen slot size) drives `background-size` for the live
-  strip. All 6 patterns confirmed loading and pre-scaling correctly, each
-  selectable and each rendering as multiple clean repeats (not a single
-  zoomed-in blob) in both the live preview and a rendered composed strip —
-  including visually distinctive ones like leopard print and Starry Night,
-  where a wrong scale or a failed load would be obvious at a glance
-- The pattern-picker's swatch row and the style label both live in the
-  bottom corners, and the row grows leftward as more patterns are added
-  (it wraps and caps its width past a point, so it can't creep across the
-  whole screen) — moved the style label from bottom-center to next to the
-  strip (mirroring how `#status-bar` already avoids the strip at the top)
-  so a full row of swatches can't run into it, plus a narrow-viewport
-  media query that stacks the row above the label instead of beside it
-  when there isn't enough width for both on one line
+  offscreen canvas once, by height (cached in `stripPatternTileCanvases`,
+  keyed by path), for the composed/downloaded strip — whose total height
+  is fixed (`STRIP_COMPOSE_SLOT_SIZE * STRIP_TOTAL_RATIO_UNITS`, a shared
+  constant with `PhotoStrip.layout()` so the two never drift apart) — and
+  a matching `--strip-pattern-tile-size` CSS variable (`window.innerHeight
+  / STRIP_PATTERN_TARGET_REPEATS`, set alongside the strip's other
+  responsive sizing) drives `background-size: auto <height>` for the live
+  strip. Confirmed the math directly (on-screen tile height, repeat count,
+  and every pre-scaled canvas's dimensions all matched the constant
+  exactly) and visually (leopard print and Starry Night both show large,
+  clearly-detailed repeats — 2-3 down the strip — in a rendered composed
+  strip, not a small busy scatter)
+- `blue-stars.png` had a solid grey ~5%-of-height border baked into the
+  source file itself (top and bottom); tiling that border repeated it as
+  a visible grey seam between-repeats. Fixed by cropping the source image
+  file directly (with a safety margin past the measured edge, confirmed
+  by sampling pixels near the new edges) rather than in code, since
+  that's a defect in that one asset, not something the general tiling
+  logic should special-case
+- The pattern-picker is a single column (`flex-direction: column`),
+  vertically centered on the screen and right-aligned
+  (`top: 50%; transform: translateY(-50%); right: 1rem`), rather than a
+  row in a bottom corner — confirmed its vertical center exactly matches
+  the viewport's at both a short test-harness viewport and a realistic
+  1280×800 size, and that it doesn't overlap the (?) help button or the
+  style label at either size. Swatches themselves are 60px (up from
+  38px); the dwell-gesture hit-testing needed no code changes at all
+  since it already reads each swatch's live `getBoundingClientRect()`
+  every frame rather than assuming a fixed size or position — confirmed
+  by re-running the two-hand dwell test after the resize/reposition and
+  getting the same correct result
 - `PatternPicker.updateDwell()` runs every frame regardless of
   `CaptureState.phase` (confirmed it still arms during a forced
   `"countdown"` phase) — it requires **both** hands' index fingertips
@@ -390,9 +406,10 @@ to lock it in and start the 4-second countdown; open the console
 beforehand to see each captured photo logged with a thumbnail. You can
 click the small save button on any filled slot to download just that one
 photo at a custom size along the way, and click (or two-hand dwell on) a
-swatch bottom-right to change the strip's background pattern. Repeat 4
-times to fill the strip (docked left) and a window pops up asking how to
-save the round — the combined strip (patterned background, "/by hhan/"
+swatch in the column on the right to change the strip's background
+pattern. Repeat 4 times to fill the strip (docked left) and a window
+pops up asking how to save the round — the combined strip (patterned
+background, "/by hhan/"
 caption at the bottom), all 4 photos individually (square, or a custom
 size you draw with your hands the same way you framed the shots), or
 both — with "Done" clearing the strip for the next round.

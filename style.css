@@ -123,31 +123,24 @@ html, body {
    right, mirroring the help button's placement on the opposite corner. */
 #pattern-picker {
   position: fixed;
-  bottom: 1rem;
+  top: 50%;
   right: 1rem;
+  transform: translateY(-50%);
   z-index: 15;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  /* Caps how far left the row can grow -- wraps upward onto another row
-     instead of creeping indefinitely as more patterns get added later. */
-  max-width: min(60vw, 320px);
-}
-
-/* On narrow viewports there isn't room for both the style label and a
-   full swatch row on the same bottom line -- stack the swatches above it
-   instead of letting the two collide. */
-@media (max-width: 700px) {
-  #pattern-picker {
-    bottom: 3.4rem;
-  }
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.6rem;
+  /* Safety net if the pattern list ever grows enough to not fit vertically
+     centered -- scrolls instead of running into the top/bottom UI. */
+  max-height: 80vh;
+  overflow-y: auto;
 }
 
 .pattern-swatch {
   position: relative;
-  width: 38px;
-  height: 38px;
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
   border: 2px solid var(--border);
   background-size: cover;
@@ -155,6 +148,7 @@ html, body {
   background-color: var(--panel);
   padding: 0;
   cursor: pointer;
+  flex: 0 0 auto;
   --dwell-progress: 0;
 }
 
@@ -165,12 +159,12 @@ html, body {
 
 .pattern-swatch-ring {
   position: absolute;
-  inset: -5px;
+  inset: -6px;
   border-radius: 50%;
   pointer-events: none;
   background: conic-gradient(var(--ok, #4ec9b0) calc(var(--dwell-progress, 0) * 360deg), rgba(255, 255, 255, 0.15) 0deg);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
 }
 
 #help-button:hover {
@@ -234,13 +228,13 @@ html, body {
   gap: var(--strip-gap, 10px);
   /* --strip-pattern is set by updateOnScreenStripPattern() whenever the
      selected swatch changes; the gradient is just the pre-JS fallback.
-     --strip-pattern-tile-size (from PhotoStrip.layout()) keeps each
-     repeat at a real "wallpaper" scale instead of the pattern's native,
-     much-larger-than-the-strip resolution -- without this the image just
-     shows one zoomed-in crop of itself, which reads as stretched. */
+     --strip-pattern-tile-size (from PhotoStrip.layout(), a *height*) sizes
+     each repeat so the pattern shows real detail -- STRIP_PATTERN_TARGET_
+     REPEATS controls how many times it repeats down the strip's height;
+     width is auto so each pattern's own aspect ratio is preserved. */
   background: var(--strip-pattern, linear-gradient(180deg, #faf6ec, #efe8d6));
   background-repeat: repeat;
-  background-size: var(--strip-pattern-tile-size, 72px) auto;
+  background-size: auto var(--strip-pattern-tile-size, 200px);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 3px 8px rgba(0, 0, 0, 0.35);
   box-sizing: border-box;
 }
