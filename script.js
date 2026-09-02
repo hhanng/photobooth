@@ -71,6 +71,16 @@ const FLASH_DURATION_MS = 300;
 // capturePhoto() bakes into the saved photo.
 const STYLES = [
   {
+    name: "No Filter",
+    // The genuinely raw, unedited feed -- no color/contrast adjustment, no
+    // grain, no overlay -- so there's always a true "what the camera
+    // actually sees" option in the cycle, not just the least-processed of
+    // the stylized looks.
+    filter: "none",
+    grain: false,
+    overlaySrc: null,
+  },
+  {
     name: "Vintage B&W",
     // Desaturate most of the way, a touch of warm sepia tint, a little
     // more contrast, and slightly lifted brightness so it doesn't read
@@ -221,7 +231,11 @@ const STRIP_PATTERNS = [
   "assets/strip-patterns/pink-glass-tile.png",
   "assets/strip-patterns/leopard.png",
 ];
-const PATTERN_DWELL_MS = 500; // both index fingertips together on one swatch
+// Plain white, used when no pattern is selected (StripPatternState.index
+// === null) -- distinct from STRIP_COMPOSE_BG, which is only a loading
+// fallback for when a pattern IS selected but its tile hasn't finished
+// rendering yet.
+const STRIP_NO_PATTERN_BG = "#ffffff";
 
 // How many times each pattern repeats vertically down the strip's full
 // height -- the one knob to retune if a pattern looks too small/busy (too
@@ -272,7 +286,8 @@ function scalePatternForTiling(img, targetHeight) {
 // Which pattern is currently selected -- read fresh by composeStripImage()
 // at the moment a strip is actually composed, so changing the selection
 // mid-round applies to whichever strip is finished next, not one already
-// in progress.
+// in progress. index is null when no pattern is selected (plain white
+// background) -- see PatternPicker.select()'s toggle-off.
 const StripPatternState = {
   index: 0,
 };
@@ -283,6 +298,10 @@ const StripPatternState = {
 // *size* on screen is set separately, in PhotoStrip.layout(), since it
 // has to stay proportional to the strip's own (responsive) slot size.
 function updateOnScreenStripPattern() {
+  if (StripPatternState.index === null) {
+    document.documentElement.style.setProperty("--strip-pattern", STRIP_NO_PATTERN_BG);
+    return;
+  }
   const path = STRIP_PATTERNS[StripPatternState.index];
   document.documentElement.style.setProperty("--strip-pattern", `url("${path}")`);
 }
@@ -418,13 +437,15 @@ function clamp(value, min, max) {
 // --- Capture flow state machine -----------------------------------------
 // phase: "idle" (rectangle live-updates from hand positions) ->
 // "countdown" (rectangle locked, counting down) -> "flash" (brief shutter
-// flash right after capture) -> back to "idle".
+// flash right after capture) -> back to "idle" (with PhotoPreview opening
+// on top to ask Keep/Retake before the photo actually reaches the strip).
 const CaptureState = {
   phase: "idle",
   lockedRect: null, // { x, y, w, h } in canvas space, frozen for the whole countdown
   countdownStartMs: null,
   flashStartMs: null,
   pinchStartMs: null, // when the current continuous pinch began, or null if not currently pinching
+  pendingPhoto: null, // captured at the end of "flash", handed to PhotoPreview instead of the strip directly
 };
 
 // In-memory captured photos -- { canvas, dataUrl, width, height, timestamp }.
@@ -750,7 +771,9 @@ function capturePhoto(video, videoW, videoH, rectX, rectY, rectW, rectH) {
   };
   capturedPhotos.push(photo);
   logCapturedPhoto(photo);
-  PhotoStrip.addPhoto(photo);
+  // Not added to the strip yet -- PhotoPreview shows it full-screen first
+  // and only calls PhotoStrip.addPhoto() if the user keeps it (explicitly
+  // or by letting the preview time out).
   return photo;
 }
 
@@ -906,6 +929,11 @@ function cropPhotoToCanvas(photo, width, height) {
 // loading yet. Read fresh every time a strip is composed, so switching
 // patterns mid-round applies to whichever strip finishes next.
 function fillStripBackground(ctx, width, height) {
+  if (StripPatternState.index === null) {
+    ctx.fillStyle = STRIP_NO_PATTERN_BG;
+    ctx.fillRect(0, 0, width, height);
+    return;
+  }
   const path = STRIP_PATTERNS[StripPatternState.index];
   const tile = stripPatternTileCanvases[path];
   if (tile) {
@@ -1275,6 +1303,133 @@ function drawSizeGestureInstructions() {
 }
 // -------------------------------------------------------------------------
 
+// --- Shared single-fingertip dwell-to-select gesture ----------------------
+// A lightweight "hover to click" gesture used anywhere a button or swatch
+// should be selectable without a pinch: either hand's index fingertip
+// (landmark 8), held over a target element's live getBoundingClientRect()
+// for DWELL_SELECT_MS, counts as a click. Used by the strip-pattern
+// swatches and the photo-preview Keep/Retake buttons.
+const DWELL_SELECT_MS = 500;
+
+function createDwellTracker() {
+  return { targetIndex: null, startMs: null };
+}
+
+// targets: an array of DOM elements (entries may be null/undefined to
+// leave a gap in the index space). Returns { index, progress } for
+// whichever target is currently hovered by any hand's index fingertip
+// (null if none is). Mutates `tracker` in place; the caller owns its own
+// tracker instance and applies whatever visual feedback (a ring, a
+// progress bar, a CSS class) fits its own UI.
+function updateDwellTracking(tracker, nowMs, hands, videoW, videoH, targets) {
+  let hoveredIndex = null;
+  for (const hand of hands) {
+    if (hoveredIndex !== null) break;
+    const tipLm = hand.landmarks[INDEX_TIP];
+    const tip = mapVideoToCanvas(tipLm.x, tipLm.y, videoW, videoH, Canvas.width, Canvas.height);
+    for (let i = 0; i < targets.length; i++) {
+      const el = targets[i];
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (tip.x >= rect.left && tip.x <= rect.right && tip.y >= rect.top && tip.y <= rect.bottom) {
+        hoveredIndex = i;
+        break;
+      }
+    }
+  }
+
+  if (hoveredIndex === null) {
+    tracker.targetIndex = null;
+    tracker.startMs = null;
+    return { index: null, progress: 0 };
+  }
+
+  if (tracker.targetIndex !== hoveredIndex) {
+    tracker.targetIndex = hoveredIndex;
+    tracker.startMs = nowMs;
+  }
+  return { index: hoveredIndex, progress: clamp((nowMs - tracker.startMs) / DWELL_SELECT_MS, 0, 1) };
+}
+// -------------------------------------------------------------------------
+
+// --- Photo preview + retake ------------------------------------------------
+// Shown full-screen immediately after every capture, before the photo is
+// committed to the strip -- a last look with a chance to redo it. Letting
+// PHOTO_PREVIEW_MS elapse with no explicit choice counts as an implicit
+// "Keep", same outcome as clicking/dwelling the Keep button; "Retake"
+// discards the photo and returns straight to the live viewfinder with the
+// same strip slot left open for another try.
+const PHOTO_PREVIEW_MS = 4000;
+
+const PhotoPreview = {
+  isOpen: false,
+  overlayEl: null,
+  imageEl: null,
+  retakeBtn: null,
+  keepBtn: null,
+  photo: null,
+  openedAtMs: null,
+  dwellTracker: null,
+
+  init() {
+    this.overlayEl = document.getElementById("photo-preview-overlay");
+    this.imageEl = document.getElementById("photo-preview-image");
+    this.retakeBtn = document.getElementById("photo-preview-retake");
+    this.keepBtn = document.getElementById("photo-preview-keep");
+    this.dwellTracker = createDwellTracker();
+
+    this.retakeBtn.addEventListener("click", () => this.resolve(false));
+    this.keepBtn.addEventListener("click", () => this.resolve(true));
+  },
+
+  open(photo, nowMs) {
+    this.photo = photo;
+    this.isOpen = true;
+    this.openedAtMs = nowMs;
+    this.imageEl.src = photo.dataUrl;
+    this.dwellTracker = createDwellTracker();
+    this._setDwellProgress(null, 0);
+    this.overlayEl.hidden = false;
+  },
+
+  // Called every frame from mainLoop while isOpen -- drives both the
+  // auto-timeout and the dwell-to-select gesture on either button (mouse
+  // clicks are wired separately, in init()).
+  update(nowMs, hands, videoW, videoH) {
+    const { index, progress } = updateDwellTracking(this.dwellTracker, nowMs, hands, videoW, videoH, [
+      this.retakeBtn,
+      this.keepBtn,
+    ]);
+    this._setDwellProgress(index, progress);
+
+    if (index !== null && progress >= 1) {
+      this.resolve(index === 1); // 0 = Retake, 1 = Keep
+      return;
+    }
+    if (nowMs - this.openedAtMs >= PHOTO_PREVIEW_MS) {
+      this.resolve(true); // elapsed with no action == implicit Keep
+    }
+  },
+
+  _setDwellProgress(hoveredIndex, progress) {
+    this.retakeBtn.style.setProperty("--dwell-progress", hoveredIndex === 0 ? String(progress) : "0");
+    this.retakeBtn.classList.toggle("dwelling", hoveredIndex === 0);
+    this.keepBtn.style.setProperty("--dwell-progress", hoveredIndex === 1 ? String(progress) : "0");
+    this.keepBtn.classList.toggle("dwelling", hoveredIndex === 1);
+  },
+
+  resolve(keep) {
+    if (!this.isOpen) return;
+    const photo = this.photo;
+    this.isOpen = false;
+    this.photo = null;
+    this.overlayEl.hidden = true;
+    if (keep) PhotoStrip.addPhoto(photo);
+    // Retake: just drop it -- the slot it would have filled stays open.
+  },
+};
+// -------------------------------------------------------------------------
+
 // --- Help ------------------------------------------------------------------
 // Opens automatically once on page load, and can be reopened anytime via
 // the (?) button -- gates mainLoop the same way the other modals do, so
@@ -1310,24 +1465,25 @@ const HelpModal = {
 // --- Strip pattern picker ------------------------------------------------
 // A small row of clickable swatches (one per STRIP_PATTERNS entry), built
 // dynamically so adding a new pattern later is just appending a path
-// above -- no other code changes. Selectable by mouse click, or by BOTH
-// index fingertips (one per hand) hovering the same swatch together for
-// PATTERN_DWELL_MS, mirroring the old skip button's single-fingertip dwell
-// but requiring both hands at once.
+// above -- no other code changes. Selectable by mouse click, or by either
+// hand's index fingertip dwelling on it (the shared DWELL_SELECT_MS
+// gesture, same as the photo-preview buttons). Clicking/dwelling the
+// already-active swatch again deselects it, reverting the strip
+// background to plain white.
 const PatternPicker = {
   containerEl: null,
   swatchEls: [],
   ringEls: [],
-  dwellSwatchIndex: null,
-  dwellStartMs: null,
+  dwellTracker: null,
 
   init() {
     this.containerEl = document.getElementById("pattern-picker");
+    this.dwellTracker = createDwellTracker();
     STRIP_PATTERNS.forEach((path, i) => {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "pattern-swatch";
-      btn.title = "Strip background pattern";
+      btn.title = "Strip background pattern (select again to remove)";
       btn.style.backgroundImage = `url("${path}")`;
       btn.addEventListener("click", () => this.select(i));
 
@@ -1343,8 +1499,10 @@ const PatternPicker = {
     updateOnScreenStripPattern();
   },
 
+  // Toggle: selecting the already-active swatch again deselects it (index
+  // -> null), instead of just always setting the clicked index.
   select(i) {
-    StripPatternState.index = i;
+    StripPatternState.index = StripPatternState.index === i ? null : i;
     this._updateActiveClass();
     updateOnScreenStripPattern();
   },
@@ -1359,61 +1517,25 @@ const PatternPicker = {
   updateDwell(nowMs, hands, videoW, videoH) {
     if (this.swatchEls.length === 0) return;
 
-    const leftHand = hands.find((h) => h.handedness === "Left") || null;
-    const rightHand = hands.find((h) => h.handedness === "Right") || null;
-    if (!leftHand || !rightHand) {
-      this._resetDwell();
-      return;
-    }
+    const { index: hoveredIndex, progress } = updateDwellTracking(
+      this.dwellTracker,
+      nowMs,
+      hands,
+      videoW,
+      videoH,
+      this.swatchEls
+    );
 
-    const leftTipLm = leftHand.landmarks[INDEX_TIP];
-    const rightTipLm = rightHand.landmarks[INDEX_TIP];
-    const leftTip = mapVideoToCanvas(leftTipLm.x, leftTipLm.y, videoW, videoH, Canvas.width, Canvas.height);
-    const rightTip = mapVideoToCanvas(rightTipLm.x, rightTipLm.y, videoW, videoH, Canvas.width, Canvas.height);
-
-    let hoveredIndex = null;
     for (let i = 0; i < this.swatchEls.length; i++) {
-      const rect = this.swatchEls[i].getBoundingClientRect();
-      const leftInside = leftTip.x >= rect.left && leftTip.x <= rect.right && leftTip.y >= rect.top && leftTip.y <= rect.bottom;
-      const rightInside = rightTip.x >= rect.left && rightTip.x <= rect.right && rightTip.y >= rect.top && rightTip.y <= rect.bottom;
-      if (leftInside && rightInside) {
-        hoveredIndex = i;
-        break;
-      }
+      const isHovered = i === hoveredIndex;
+      this.swatchEls[i].classList.toggle("dwelling", isHovered);
+      this.ringEls[i].style.setProperty("--dwell-progress", isHovered ? String(progress) : "0");
     }
 
-    if (hoveredIndex === null) {
-      this._resetDwell();
-      return;
-    }
-
-    if (this.dwellSwatchIndex !== hoveredIndex) {
-      this.dwellSwatchIndex = hoveredIndex;
-      this.dwellStartMs = nowMs;
-    }
-
-    const progress = clamp((nowMs - this.dwellStartMs) / PATTERN_DWELL_MS, 0, 1);
-    this.ringEls[hoveredIndex].style.setProperty("--dwell-progress", String(progress));
-    this.swatchEls[hoveredIndex].classList.add("dwelling");
-    for (let i = 0; i < this.swatchEls.length; i++) {
-      if (i === hoveredIndex) continue;
-      this.swatchEls[i].classList.remove("dwelling");
-      this.ringEls[i].style.setProperty("--dwell-progress", "0");
-    }
-
-    if (progress >= 1) {
+    if (hoveredIndex !== null && progress >= 1) {
       this.select(hoveredIndex);
-      this._resetDwell();
+      this.dwellTracker = createDwellTracker();
     }
-  },
-
-  _resetDwell() {
-    this.dwellSwatchIndex = null;
-    this.dwellStartMs = null;
-    this.swatchEls.forEach((el, i) => {
-      el.classList.remove("dwelling");
-      this.ringEls[i].style.setProperty("--dwell-progress", "0");
-    });
   },
 };
 // -------------------------------------------------------------------------
@@ -1450,6 +1572,15 @@ function mainLoop(nowMs) {
     if (RoundCompleteModal.pickingSize) {
       RoundCompleteModal.updateSizeGesture(nowMs, hands, videoW, videoH);
     }
+    requestAnimationFrame(mainLoop);
+    return;
+  }
+
+  if (PhotoPreview.isOpen) {
+    // Nothing else should track/trigger while the just-captured photo is
+    // up for a Keep/Retake decision -- no new frame can start forming
+    // underneath it.
+    PhotoPreview.update(nowMs, hands, videoW, videoH);
     requestAnimationFrame(mainLoop);
     return;
   }
@@ -1533,7 +1664,7 @@ function mainLoop(nowMs) {
     drawCountdownNumber(x, y, w, h, nowMs);
 
     if (nowMs - CaptureState.countdownStartMs >= COUNTDOWN_SECONDS * 1000) {
-      capturePhoto(video, videoW, videoH, x, y, w, h);
+      CaptureState.pendingPhoto = capturePhoto(video, videoW, videoH, x, y, w, h);
       CaptureState.phase = "flash";
       CaptureState.flashStartMs = nowMs;
     }
@@ -1545,6 +1676,10 @@ function mainLoop(nowMs) {
     if (nowMs - CaptureState.flashStartMs >= FLASH_DURATION_MS) {
       CaptureState.phase = "idle";
       CaptureState.lockedRect = null;
+      // Hand off to the preview -- it decides (via Keep/Retake, or its own
+      // timeout) whether this photo actually reaches the strip.
+      PhotoPreview.open(CaptureState.pendingPhoto, nowMs);
+      CaptureState.pendingPhoto = null;
       // pinchStartMs is untouched by countdown/flash (only the idle branch
       // reads/writes it), so even if the original pinch is still being
       // held through the whole cycle, the next idle frame starts timing a
@@ -1565,6 +1700,7 @@ async function init() {
   PatternPicker.init();
   SizePicker.init();
   RoundCompleteModal.init();
+  PhotoPreview.init();
   HelpModal.init();
   HelpModal.open();
   await Promise.all([Webcam.init(), HandTracker.init()]);

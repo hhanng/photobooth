@@ -9,7 +9,7 @@
        time script.js/style.css change, or returning visitors' browsers
        can silently keep serving an old cached copy for up to 10 minutes
        (or longer, depending on the browser) after a new deploy. -->
-  <link rel="stylesheet" href="style.css?v=12" />
+  <link rel="stylesheet" href="style.css?v=14" />
 </head>
 <body>
   <video id="webcam-video" autoplay muted playsinline></video>
@@ -26,15 +26,16 @@
   <!-- Current style name -- cycled by a left-hand pinch. Always visible
        (not just while framing) so you know what's selected before you
        start. -->
-  <div id="style-label" aria-live="polite">Vintage B&amp;W</div>
+  <div id="style-label" aria-live="polite">No Filter</div>
 
   <!-- Persistent on-screen signature, matching the same caption baked
        into every saved strip. Always visible, purely decorative. -->
   <div id="on-screen-signature" aria-hidden="true">/by hhan/</div>
 
   <!-- Strip background pattern picker -- swatches populated dynamically
-       in JS from STRIP_PATTERNS. Click one directly, or hover BOTH index
-       fingertips over the same swatch for 0.5s. -->
+       in JS from STRIP_PATTERNS. Click one directly, or hover either
+       hand's index fingertip over it for 0.5s. Selecting the already-
+       active swatch again deselects it (plain white background). -->
   <div id="pattern-picker" aria-label="Strip background pattern"></div>
 
   <!-- Help: opens automatically on page load, and can be reopened anytime
@@ -83,6 +84,19 @@
     </div>
   </div>
 
+  <!-- Photo preview + retake: shown full-screen right after every capture,
+       before the photo is committed to the strip. Auto-resolves as "Keep"
+       after 4s with no action; "Retake" discards it and reopens the live
+       viewfinder with the same slot left open. Both buttons work by click
+       or by either hand's index fingertip dwelling on them for 0.5s. -->
+  <div id="photo-preview-overlay" class="modal-overlay photo-preview-overlay" hidden>
+    <img id="photo-preview-image" class="photo-preview-image" alt="Captured photo preview" />
+    <div class="photo-preview-actions">
+      <button id="photo-preview-retake" type="button" class="btn-secondary photo-preview-btn">Retake</button>
+      <button id="photo-preview-keep" type="button" class="btn-primary photo-preview-btn">Keep</button>
+    </div>
+  </div>
+
   <!-- Round-complete save choice: shown once all 4 strip slots fill.
        Choosing "Save Strip" and/or "Save All 4" can both be done before
        finishing -- only "Done" resets the round for the next one. -->
@@ -121,6 +135,6 @@
        without needing to complete a pinch. -->
   <button id="size-gesture-cancel" type="button" class="btn-secondary size-gesture-cancel-btn" hidden>Cancel</button>
 
-  <script src="script.js?v=12" type="module"></script>
+  <script src="script.js?v=14" type="module"></script>
 </body>
 </html>

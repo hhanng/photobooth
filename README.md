@@ -28,19 +28,20 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   finding out after the shot.
 - **Styled crop** — only the video *inside* that rectangle gets the active
   style's treatment — the video outside the rectangle is untouched, full
-  color. Four styles, cycled with a **LEFT-hand pinch** (thumb tip
+  color. Five styles, cycled with a **LEFT-hand pinch** (thumb tip
   touching index tip, one quick pinch — not held, the opposite of the
-  right hand's capture gesture): **Vintage B&W** (the default — mostly
-  desaturated, warm sepia tint, a little more contrast, subtle film
-  grain), **Sepia** (fully desaturated then a strong warm-brown tint, no
-  grain), **Vibrant Pop** (boosted saturation and contrast for punchy,
-  vivid color, no desaturation at all), and **Star Scrapbook** (the
-  Vintage B&W look as a base, with a decorative overlay of stars and
-  sparkles composited on top — the overlay has a clear center and all its
-  decoration near the edges, so it frames a photo without covering the
-  subject). The current style's name shows in a small pill at the bottom
-  of the screen, and applies live in the viewfinder so you can see it
-  before you shoot.
+  right hand's capture gesture): **No Filter** (the default — the
+  genuinely raw, unedited feed, no color/contrast adjustment at all),
+  **Vintage B&W** (mostly desaturated, warm sepia tint, a little more
+  contrast, subtle film grain), **Sepia** (fully desaturated then a
+  strong warm-brown tint, no grain), **Vibrant Pop** (boosted saturation
+  and contrast for punchy, vivid color, no desaturation at all), and
+  **Star Scrapbook** (the Vintage B&W look as a base, with a decorative
+  overlay of stars and sparkles composited on top — the overlay has a
+  clear center and all its decoration near the edges, so it frames a
+  photo without covering the subject). The current style's name shows in
+  a small pill at the bottom of the screen, and applies live in the
+  viewfinder so you can see it before you shoot.
 - **Capture** — pinch your RIGHT hand's thumb and index tip together and
   *hold* the pinch for a full second (a small progress ring appears at the
   pinch point so you can see it registering) to lock the frame in place
@@ -55,6 +56,15 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   is what gets baked in, so you can keep cycling styles during the
   countdown if you change your mind), a shutter flash fires, and the
   frame unlocks — ready to pinch-and-hold again for the next shot.
+- **Photo preview + retake** — every capture shows full-screen, on its own,
+  for 4 seconds before it ever reaches the strip, with **Retake** and
+  **Keep** buttons underneath. Letting the 4 seconds run out counts as an
+  implicit Keep, same as pressing the button; **Retake** discards the
+  photo entirely and drops straight back to the live viewfinder with that
+  strip slot still open. Both buttons work by click, or by either hand's
+  index fingertip dwelling on one for half a second (a thin progress bar
+  fills along the button's bottom edge as feedback) — the same
+  dwell-to-select gesture as the strip-pattern swatches below.
 - **Photo strip** — a classic photobooth strip, docked flush to the left
   edge, running the full height of the screen (straight, no tilt) with 4
   square slots, thin margins/gaps, and a proportionally larger bottom
@@ -68,15 +78,16 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   vertically centered along the right edge of the screen, one per
   available pattern: red stripes, blue stars, pink watercolor stars,
   Starry Night, pink glass tile, and leopard print (more can be added
-  just by listing more image paths). Click a swatch to select it
-  directly, or hover **BOTH** index fingertips (one from each hand) over
-  the same swatch together for half a second — a radial ring fills in
-  around it as feedback, and moving either fingertip off before it
-  completes cancels the selection. Whichever pattern is selected fills
-  the strip's background tiled at a "wallpaper" scale (2-3 repeats down
-  the strip's height, not stretched or reduced to visual noise), and
-  applies to whichever strip is actually composed next — changing it
-  mid-round doesn't retroactively affect a strip already in progress.
+  just by listing more image paths). Click a swatch to select it, or
+  hover either hand's index fingertip over it for half a second — a
+  radial ring fills in around it as feedback, and moving the fingertip
+  off before it completes cancels the selection. Clicking or dwelling on
+  the *already-active* swatch again deselects it, reverting the strip's
+  background to plain white. Whichever pattern is selected fills the
+  strip's background tiled at a "wallpaper" scale (2-3 repeats down the
+  strip's height, not stretched or reduced to visual noise), and applies
+  to whichever strip is actually composed next — changing it mid-round
+  doesn't retroactively affect a strip already in progress.
 - **Save a photo at a custom size** — every filled strip slot has a small
   save button in its corner. Click it to open a size picker (prefilled
   with that photo's actual dimensions) where you can type whatever

@@ -472,6 +472,56 @@ html, body {
   cursor: not-allowed;
 }
 
+/* Photo preview + retake: full-screen, right after every capture. Reuses
+   .modal-overlay's dark backdrop/centering, just stacked as a column
+   instead of showing a card. */
+.photo-preview-overlay {
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.photo-preview-image {
+  display: block;
+  max-width: min(70vw, 640px);
+  max-height: 65vh;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 3px 8px rgba(0, 0, 0, 0.35);
+  object-fit: contain;
+}
+
+.photo-preview-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+.photo-preview-btn {
+  position: relative;
+  overflow: hidden;
+  padding: 0.6rem 1.8rem;
+  font-size: 0.95rem;
+}
+
+/* Dwell-to-select progress: a thin bar filling left-to-right along the
+   button's bottom edge, driven by --dwell-progress (set every frame while
+   either hand's index fingertip hovers it -- see PhotoPreview.update()) --
+   same underlying gesture as the strip-pattern swatches, just a bar
+   instead of a ring since these buttons are rectangular, not circular. */
+.photo-preview-btn::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: calc(var(--dwell-progress, 0) * 100%);
+  background: var(--ok);
+  transition: width 0.05s linear;
+}
+
+.photo-preview-btn.dwelling {
+  box-shadow: 0 0 0 2px rgba(78, 201, 176, 0.4);
+}
+
 /* Round-complete save-choice modal. */
 .round-complete-card {
   width: min(360px, 90vw);
