@@ -96,6 +96,25 @@ html, body {
   pointer-events: none;
 }
 
+/* Persistent signature, bottom-center -- matches the same "/by hhan/"
+   caption baked into every saved strip. Sits low enough (0.35rem from the
+   edge) to clear .size-gesture-cancel-btn's 2.5rem position when that's
+   showing, and plain black like the strip caption, with just enough of a
+   light glow to stay legible over a dark video feed rather than vanishing
+   into it. */
+#on-screen-signature {
+  position: fixed;
+  bottom: 0.1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  font-size: 0.6rem;
+  line-height: 1;
+  color: #000;
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+}
+
 /* Help button -- always on top (above any modal backdrop) so it's
    reachable to reopen the guide at any time. */
 #help-button {
@@ -162,9 +181,17 @@ html, body {
   inset: -6px;
   border-radius: 50%;
   pointer-events: none;
+  /* Hidden by default -- only the actual dwell-hold should show a ring,
+     not a permanent faint halo around every swatch. */
+  opacity: 0;
+  transition: opacity 0.15s ease;
   background: conic-gradient(var(--ok, #4ec9b0) calc(var(--dwell-progress, 0) * 360deg), rgba(255, 255, 255, 0.15) 0deg);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+}
+
+.pattern-swatch.dwelling .pattern-swatch-ring {
+  opacity: 1;
 }
 
 #help-button:hover {
@@ -173,27 +200,30 @@ html, body {
 }
 
 .help-card {
-  width: min(400px, 90vw);
+  width: min(360px, 90vw);
 }
 
 .help-steps {
-  margin: 0 0 1rem;
-  padding-left: 1.2rem;
-  font-size: 0.85rem;
-  line-height: 1.5;
+  list-style: none;
+  margin: 0 0 0.85rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
   color: rgba(255, 255, 255, 0.85);
-}
-
-.help-steps li {
-  margin-bottom: 0.7rem;
-}
-
-.help-steps li:last-child {
-  margin-bottom: 0;
 }
 
 .help-steps strong {
   color: var(--ok);
+}
+
+.help-signature {
+  margin: 0 0 1rem;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
 }
 
 .status-pill.ok {
@@ -443,20 +473,17 @@ html, body {
   width: min(360px, 90vw);
 }
 
-.round-complete-thumbs {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.4rem;
-  margin-bottom: 1rem;
-}
-
-.round-thumb {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
+/* The actual composed strip -- pattern, photos, and signature caption,
+   exactly what "Save Strip" would produce -- scaled down to fit the
+   modal instead of 4 separate thumbnails. */
+.round-complete-strip-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 280px;
+  margin: 0 auto 1rem;
   border-radius: 4px;
   border: 1px solid var(--border);
-  display: block;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
 .round-complete-section {

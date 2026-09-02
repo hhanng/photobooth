@@ -1076,7 +1076,7 @@ const RoundCompleteModal = {
   isOpen: false,
   pickingSize: false,
   overlayEl: null,
-  thumbsEl: null,
+  stripPreviewEl: null,
   squareRadioEl: null,
   customRadioEl: null,
   customFieldsEl: null,
@@ -1094,7 +1094,7 @@ const RoundCompleteModal = {
 
   init() {
     this.overlayEl = document.getElementById("round-complete-overlay");
-    this.thumbsEl = document.getElementById("round-complete-thumbs");
+    this.stripPreviewEl = document.getElementById("round-complete-strip-preview");
     this.squareRadioEl = document.getElementById("round-size-square");
     this.customRadioEl = document.getElementById("round-size-custom");
     this.customFieldsEl = document.getElementById("round-custom-fields");
@@ -1130,13 +1130,10 @@ const RoundCompleteModal = {
     this.photos = photos;
     this.isOpen = true;
 
-    this.thumbsEl.innerHTML = "";
-    photos.forEach((photo) => {
-      const img = document.createElement("img");
-      img.src = photo.dataUrl;
-      img.className = "round-thumb";
-      this.thumbsEl.appendChild(img);
-    });
+    // The real composed strip -- pattern, photos, and signature caption --
+    // exactly what "Save Strip" would produce, so you see what you're
+    // about to get instead of 4 disconnected thumbnails.
+    this.stripPreviewEl.src = composeStripImage(photos).toDataURL("image/png");
 
     this.squareRadioEl.checked = true;
     this.customFieldsEl.hidden = true;

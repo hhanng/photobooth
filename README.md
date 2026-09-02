@@ -8,9 +8,12 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
 
 ## How it works
 
-- **Help** — a guide to all of this pops up automatically the moment the
-  page loads, and a small (?) button in the top-right corner reopens it
-  anytime afterward.
+- **Help** — a short "Photobooth controls" guide (Frame / Style / Capture,
+  one line each) pops up automatically the moment the page loads, and a
+  small (?) button in the top-right corner reopens it anytime afterward.
+- **Signature** — a small "/by hhan/" watermark sits at the bottom-center
+  of the screen at all times, and the same line is baked into the bottom
+  of every saved strip.
 - **Frame corners** — the bounding box of 4 points: right-hand thumb tip
   (landmark 4), right-hand index tip (8), left-hand thumb tip (4), and
   left-hand index tip (8). The rectangle is just the min/max x and y among
@@ -83,8 +86,11 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   strip's fixed square slots.
 - **Round-complete save choice** — once the 4th slot fills, a window pops
   up asking how to save the round, instead of auto-downloading and
-  resetting right away: **Save Strip** downloads the combined strip image
-  (as before), and **Save All 4** downloads each of the 4 photos as
+  resetting right away. It shows a live preview of the actual composed
+  strip (pattern, all 4 photos, and the signature caption — exactly what
+  "Save Strip" would produce) rather than 4 separate thumbnails.
+  **Save Strip** downloads that combined strip image (as before), and
+  **Save All 4** downloads each of the 4 photos as
   separate PNGs, either "Square" (the same crop the strip itself uses) or
   a custom size applied to all 4. The custom size isn't typed — hit
   "✋ Draw Size With Hands" and the window steps aside to show the live
@@ -292,7 +298,16 @@ photo strip + auto-save are all fully implemented:
   way the other modals do — an early-return before any hand-detection or
   capture logic runs, confirmed `CaptureState.phase` never advances while
   it's open. The (?) button and a click on the dimmed backdrop both call
-  the same `close()`
+  the same `close()`. Its copy is fixed, plain text (no emoji): a
+  "Photobooth controls" heading, one line each for Frame/Style/Capture,
+  and a small "/by hhan/" signature line above the close button
+- `#on-screen-signature` is a plain, always-visible "/by hhan/" element,
+  bottom-center, independent of any modal — positioned close enough to
+  the very bottom edge (with a small font size) to leave a confirmed
+  clear gap from `#style-label` (which sits just above it, bottom-left
+  near the strip) even at a narrow test viewport where the two are
+  closest; a light `text-shadow` keeps the plain black text legible over
+  a dark video feed instead of just vanishing into it
 - `STRIP_PATTERNS` is just a list of image paths — `PatternPicker.init()`
   builds one swatch button per entry, so adding a pattern later is only
   ever appending a path there, nothing else to touch. Each composed strip
@@ -343,6 +358,13 @@ photo strip + auto-save are all fully implemented:
   every frame rather than assuming a fixed size or position — confirmed
   by re-running the two-hand dwell test after the resize/reposition and
   getting the same correct result
+- `.pattern-swatch-ring` used to render at all times (just filled with a
+  faint `rgba(255,255,255,0.15)` when not mid-dwell, from the conic
+  gradient's own "remainder" color), which showed as a constant soft halo
+  around every swatch even at rest. Fixed by hiding it (`opacity: 0`) by
+  default and only revealing it (`opacity: 1`) while `.dwelling` is
+  actually applied to that swatch, so the ring only ever appears during a
+  real two-hand dwell attempt
 - `PatternPicker.updateDwell()` runs every frame regardless of
   `CaptureState.phase` (confirmed it still arms during a forced
   `"countdown"` phase) — it requires **both** hands' index fingertips
