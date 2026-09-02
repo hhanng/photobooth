@@ -80,8 +80,10 @@ html, body {
 #style-label {
   position: fixed;
   bottom: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
+  /* Anchored next to the strip (like #status-bar is at the top) rather
+     than centered, so it can't collide with the pattern-picker swatches
+     growing in from the right as more patterns get added. */
+  left: calc(var(--strip-width, 132px) + 1rem);
   z-index: 10;
   font-size: 0.7rem;
   letter-spacing: 0.04em;
@@ -125,7 +127,21 @@ html, body {
   right: 1rem;
   z-index: 15;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.5rem;
+  /* Caps how far left the row can grow -- wraps upward onto another row
+     instead of creeping indefinitely as more patterns get added later. */
+  max-width: min(60vw, 320px);
+}
+
+/* On narrow viewports there isn't room for both the style label and a
+   full swatch row on the same bottom line -- stack the swatches above it
+   instead of letting the two collide. */
+@media (max-width: 700px) {
+  #pattern-picker {
+    bottom: 3.4rem;
+  }
 }
 
 .pattern-swatch {

@@ -205,7 +205,14 @@ const STRIP_SIGNATURE_TEXT = "/by hhan/";
 // add a new selectable option, no other code changes needed. Whichever one
 // is selected fills the strip's background (behind/between the 4 photos),
 // tiled rather than stretched so it doesn't look distorted.
-const STRIP_PATTERNS = ["assets/strip-patterns/red-stripes.png"];
+const STRIP_PATTERNS = [
+  "assets/strip-patterns/red-stripes.png",
+  "assets/strip-patterns/blue-stars.png",
+  "assets/strip-patterns/pink-watercolor-stars.png",
+  "assets/strip-patterns/starry-night.png",
+  "assets/strip-patterns/pink-glass-tile.png",
+  "assets/strip-patterns/leopard.png",
+];
 const PATTERN_DWELL_MS = 500; // both index fingertips together on one swatch
 
 // The source pattern images are much higher-resolution than the strip is

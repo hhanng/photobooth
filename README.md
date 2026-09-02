@@ -62,16 +62,17 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   the next slot; empty slots show a dimmed, numbered placeholder so you
   can see how many shots remain.
 - **Strip background pattern** — a row of round swatches, bottom-right,
-  one per available pattern (starts with a single red-stripe fabric
-  pattern; more can be added just by listing more image paths). Click a
-  swatch to select it directly, or hover **BOTH** index fingertips (one
-  from each hand) over the same swatch together for half a second — a
-  radial ring fills in around it as feedback, and moving either fingertip
-  off before it completes cancels the selection. Whichever pattern is
-  selected fills the strip's background tiled (not stretched, so the
-  fabric stripes don't look distorted), and applies to whichever strip is
-  actually composed next — changing it mid-round doesn't retroactively
-  affect a strip already in progress.
+  one per available pattern: red stripes, blue stars, pink watercolor
+  stars, Starry Night, pink glass tile, and leopard print (more can be
+  added just by listing more image paths). Click a swatch to select it
+  directly, or hover **BOTH** index fingertips (one from each hand) over
+  the same swatch together for half a second — a radial ring fills in
+  around it as feedback, and moving either fingertip off before it
+  completes cancels the selection. Whichever pattern is selected fills
+  the strip's background tiled at a small, wallpaper-like scale (not
+  stretched or zoomed in), and applies to whichever strip is actually
+  composed next — changing it mid-round doesn't retroactively affect a
+  strip already in progress.
 - **Save a photo at a custom size** — every filled strip slot has a small
   save button in its corner. Click it to open a size picker (prefilled
   with that photo's actual dimensions) where you can type whatever
@@ -306,17 +307,26 @@ photo strip + auto-save are all fully implemented:
   "stretched" even though nothing was actually being scaled up).
   `STRIP_PATTERN_TILE_RATIO` (one constant, near `STRIP_PATTERNS`) fixes
   this: each tile's width is that fraction of one photo slot's size, so a
-  handful of repeats fit across the strip like real wallpaper, at both
-  ends —
+  handful of repeats fit across the strip like real wallpaper.
   `scalePatternForTiling()` pre-scales each pattern down to a small
   offscreen canvas once (cached in `stripPatternTileCanvases`, keyed by
   path) for the composed/downloaded strip, and a matching
   `--strip-pattern-tile-size` CSS variable (set alongside the other
   responsive sizing in `PhotoStrip.layout()`, so it stays proportional to
   the actual on-screen slot size) drives `background-size` for the live
-  strip. Confirmed visually: multiple clean stripe repeats across the
-  strip's width in both the live preview and a rendered composed strip,
-  not a single zoomed-in color block
+  strip. All 6 patterns confirmed loading and pre-scaling correctly, each
+  selectable and each rendering as multiple clean repeats (not a single
+  zoomed-in blob) in both the live preview and a rendered composed strip —
+  including visually distinctive ones like leopard print and Starry Night,
+  where a wrong scale or a failed load would be obvious at a glance
+- The pattern-picker's swatch row and the style label both live in the
+  bottom corners, and the row grows leftward as more patterns are added
+  (it wraps and caps its width past a point, so it can't creep across the
+  whole screen) — moved the style label from bottom-center to next to the
+  strip (mirroring how `#status-bar` already avoids the strip at the top)
+  so a full row of swatches can't run into it, plus a narrow-viewport
+  media query that stacks the row above the label instead of beside it
+  when there isn't enough width for both on one line
 - `PatternPicker.updateDwell()` runs every frame regardless of
   `CaptureState.phase` (confirmed it still arms during a forced
   `"countdown"` phase) — it requires **both** hands' index fingertips
@@ -393,4 +403,4 @@ both — with "Done" clearing the strip for the next round.
 - `style.css` — full-bleed layout, styling, the photobooth-strip look, the style label, the pattern swatches, the help button/modal, the slot save button, and the other modals
 - `script.js` — webcam init, canvas setup, MediaPipe hand tracking, the viewfinder/style-presets/strip-crop-guide/capture/photo-strip logic, the `SizePicker` custom-size save modal, the `RoundCompleteModal` save-choice modal, and the `PatternPicker` strip background picker
 - `assets/scrapbook-overlay.png` — the decorative stars/sparkles overlay used by the Star Scrapbook style
-- `assets/strip-patterns/red-stripes.png` — the default strip background pattern
+- `assets/strip-patterns/` — the 6 selectable strip background patterns (`red-stripes.png`, the default, plus `blue-stars.png`, `pink-watercolor-stars.png`, `starry-night.png`, `pink-glass-tile.png`, `leopard.png`)
