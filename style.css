@@ -81,27 +81,16 @@ html, body {
   color: var(--text);
 }
 
-/* Bottom-left control row: style-label + the skin-smoother toggle,
-   bottom-center-ish, out of the way of the frame/countdown UI above it.
+/* Active style name -- cycled by a left-hand pinch. Small and unobtrusive,
+   bottom-center, out of the way of the frame/countdown/skip UI above it.
    Anchored next to the strip (like #status-bar is at the top) rather than
    centered, so it can't collide with the pattern-picker swatches growing
-   in from the right. Wraps and caps its own width on narrow viewports for
-   the same reason #status-bar does. */
-#bottom-left-controls {
+   in from the right. */
+#style-label {
   position: fixed;
   bottom: 1rem;
   left: calc(var(--strip-width, 132px) + 1rem);
   z-index: 10;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  max-width: calc(100vw - var(--strip-width, 132px) - 2rem);
-}
-
-/* Active style name -- cycled by a left-hand pinch. Small and
-   unobtrusive; purely informational, not itself interactive. */
-#style-label {
   font-size: 0.7rem;
   letter-spacing: 0.04em;
   padding: 0.25rem 0.7rem;
@@ -111,32 +100,6 @@ html, body {
   color: rgba(255, 255, 255, 0.65);
   backdrop-filter: blur(4px);
   pointer-events: none;
-}
-
-/* Skin-smoother toggle: a plain click/tap button (not a gesture), same
-   small pill scale as #style-label so the two read as one control row. */
-#skin-smoother-toggle {
-  font-size: 0.7rem;
-  letter-spacing: 0.02em;
-  padding: 0.25rem 0.7rem;
-  border-radius: 999px;
-  background: rgba(20, 20, 20, 0.6);
-  border: 1px solid var(--border);
-  color: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(4px);
-  cursor: pointer;
-  font-family: inherit;
-}
-
-#skin-smoother-toggle:hover {
-  border-color: rgba(255, 255, 255, 0.4);
-  color: rgba(255, 255, 255, 0.9);
-}
-
-#skin-smoother-toggle.active {
-  background: rgba(78, 201, 176, 0.18);
-  border-color: var(--ok);
-  color: var(--ok);
 }
 
 /* Persistent signature, bottom-center -- matches the same "/by hhan/"
@@ -185,9 +148,11 @@ html, body {
   justify-content: center;
 }
 
-/* Strip background pattern picker -- a row of circular swatches, bottom
-   right, mirroring the help button's placement on the opposite corner. */
-#pattern-picker {
+/* Right-edge toolbar: the beauty-filter toggles stacked above the strip
+   pattern swatches, one vertically-centered column -- this element (not
+   #pattern-picker) now owns all the fixed positioning/responsive sizing,
+   so the two groups scroll/scale together as one unit. */
+#right-toolbar {
   position: fixed;
   top: 50%;
   /* Scales down on narrow viewports along with the swatches themselves,
@@ -203,10 +168,30 @@ html, body {
      narrow portrait one does -- vw alone stays large in landscape and
      the column would overflow its own max-height below instead. */
   gap: clamp(0.3rem, min(1.5vw, 1.5vh), 0.6rem);
-  /* Safety net if the pattern list ever grows enough to not fit vertically
-     centered -- scrolls instead of running into the top/bottom UI. */
+  /* Safety net if the combined button count ever grows enough to not fit
+     vertically centered -- scrolls instead of running into the top/bottom
+     UI. */
   max-height: 80vh;
   overflow-y: auto;
+}
+
+#beauty-picker,
+#pattern-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: clamp(0.3rem, min(1.5vw, 1.5vh), 0.6rem);
+}
+
+/* Thin separator between the beauty toggles and the pattern swatches --
+   same shrink behavior as the swatches so it never reads as wider than
+   the column it's dividing. */
+#right-toolbar-divider {
+  width: clamp(22px, min(5vw, 5vh), 36px);
+  height: 1px;
+  background: var(--border);
+  margin: 0.1rem 0;
+  flex: 0 0 auto;
 }
 
 .pattern-swatch {
@@ -250,6 +235,23 @@ html, body {
 
 .pattern-swatch.dwelling .pattern-swatch-ring {
   opacity: 1;
+}
+
+/* Beauty toggles reuse .pattern-swatch's circular sizing/border/active/
+   dwell-ring styling wholesale (same class) -- this just adds the bits a
+   pattern swatch doesn't need: centering an icon glyph instead of a
+   background-image, since there's no thumbnail to show. */
+.beauty-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-image: none !important;
+}
+
+.beauty-toggle-icon {
+  font-size: clamp(16px, min(4.2vw, 4.2vh), 26px);
+  line-height: 1;
+  pointer-events: none;
 }
 
 #help-button:hover {

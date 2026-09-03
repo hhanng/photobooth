@@ -42,15 +42,33 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   photo without covering the subject). The current style's name shows in
   a small pill at the bottom of the screen, and applies live in the
   viewfinder so you can see it before you shoot.
-- **Skin Smoother** — a plain click/tap toggle button (✨ Smooth Skin,
-  next to the style pill), independent of any gesture and independent of
-  which style is active. Layers a second, blurred copy of the same crop
-  on top of the sharp one at partial opacity — a cheap, canvas-native
-  approximation of a beauty filter (no separate face-detection pass) that
-  softens fine detail while the sharp layer still shows through
-  underneath, so it reads as smoothed skin rather than an out-of-focus
-  video. Applies live in the viewfinder and gets baked into the actual
-  captured photo, same as the active style.
+- **Face beauty filters** — a second MediaPipe model, `FaceLandmarker`,
+  runs alongside the hand tracker (same video, its own independent
+  `detectForVideo` call each frame) and detects every face currently in
+  view, up to 4 at once. Two independent toggle buttons sit at the top of
+  the right-edge toolbar (🧴 Skin Smoother, 😊 Blush), styled and
+  interactive exactly like the strip-pattern swatches below them: click,
+  or either hand's index fingertip dwelling on one for half a second, and
+  selecting an already-active toggle again turns it off. Either, both, or
+  neither can be on; both apply to *every* detected face across the full
+  camera feed, entirely independent of the hand-formed capture rectangle
+  or which color style is active, live in the viewfinder and baked into
+  the actual saved photo.
+  - **Skin Smoother** layers a blurred, reduced-opacity copy of each
+    face's own region back on top of the sharp video, masked to the face
+    (minus the eyes, eyebrows, lips, and nostrils, which stay sharp) so
+    it reads as softened skin rather than an out-of-focus face. The mask
+    is built from a small set of well-established `FaceLandmarker`
+    anchor points (face-edge, eye-corner, mouth-corner landmarks used
+    ubiquitously across face-mesh tooling) as rotated ellipses — robust
+    to head tilt — combined into one `Path2D` and clipped with the
+    `evenodd` fill rule, so the exclusion zones punch cleanly out of the
+    face region in a single clip call.
+  - **Blush** draws a soft, strong pink-red radial gradient on both
+    cheeks of every detected face — dense color at the center fading to
+    fully transparent at the edge — positioned from a geometric blend of
+    eye-corner, mouth-corner, and face-edge landmarks rather than a
+    single less-certain "cheek" index.
 - **Capture** — pinch your RIGHT hand's thumb and index tip together and
   *hold* the pinch for a full second (a small progress ring appears at the
   pinch point so you can see it registering) to lock the frame in place
@@ -83,10 +101,11 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   caption in the bottom margin, regardless of pattern. Each capture fills
   the next slot; empty slots show a dimmed, numbered placeholder so you
   can see how many shots remain.
-- **Strip background pattern** — a column of large round swatches,
-  vertically centered along the right edge of the screen, one per
-  available pattern: red stripes, blue stars, pink watercolor stars,
-  Starry Night, pink glass tile, and leopard print (more can be added
+- **Strip background pattern** — a column of large round swatches (below
+  the two face-beauty-filter toggles, sharing the same vertically-centered
+  right-edge toolbar), one per available pattern: red stripes, blue
+  stars, pink watercolor stars, Starry Night, pink glass tile, and
+  leopard print (more can be added
   just by listing more image paths). Click a swatch to select it, or
   hover either hand's index fingertip over it for half a second — a
   radial ring fills in around it as feedback, and moving the fingertip

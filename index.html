@@ -9,7 +9,7 @@
        time script.js/style.css change, or returning visitors' browsers
        can silently keep serving an old cached copy for up to 10 minutes
        (or longer, depending on the browser) after a new deploy. -->
-  <link rel="stylesheet" href="style.css?v=17" />
+  <link rel="stylesheet" href="style.css?v=19" />
 </head>
 <body>
   <video id="webcam-video" autoplay muted playsinline></video>
@@ -19,31 +19,40 @@
     <span id="brand">photobooth</span>
     <span class="status-pill" id="webcam-status">webcam: idle</span>
     <span class="status-pill" id="hand-status">hand: idle</span>
+    <span class="status-pill" id="face-status">face: idle</span>
   </div>
 
   <div id="photo-strip" aria-label="Photo strip"></div>
 
-  <!-- Bottom-left control row: current style name (cycled by a left-hand
-       pinch, always visible so you know what's selected before you
-       start) plus the skin-smoother toggle -- a plain click/tap button,
-       independent of any gesture, that layers a soft-focus pass on top
-       of whichever style is active. -->
-  <div id="bottom-left-controls">
-    <div id="style-label" aria-live="polite">No Filter</div>
-    <button id="skin-smoother-toggle" type="button" aria-pressed="false" title="Soften skin/detail on top of the current style">
-      ✨ Smooth Skin
-    </button>
-  </div>
+  <!-- Current style name -- cycled by a left-hand pinch. Always visible
+       (not just while framing) so you know what's selected before you
+       start. -->
+  <div id="style-label" aria-live="polite">No Filter</div>
 
   <!-- Persistent on-screen signature, matching the same caption baked
        into every saved strip. Always visible, purely decorative. -->
   <div id="on-screen-signature" aria-hidden="true">/by hhan/</div>
 
-  <!-- Strip background pattern picker -- swatches populated dynamically
-       in JS from STRIP_PATTERNS. Click one directly, or hover either
-       hand's index fingertip over it for 0.5s. Selecting the already-
-       active swatch again deselects it (plain white background). -->
-  <div id="pattern-picker" aria-label="Strip background pattern"></div>
+  <!-- Right-edge toolbar: face beauty filter toggles above the strip
+       pattern swatches, one vertically-centered column. Both groups use
+       the same circular-swatch look and the same click/dwell interaction
+       (see BeautyPicker / PatternPicker in script.js). -->
+  <div id="right-toolbar" aria-label="Camera effects">
+    <div id="beauty-picker" aria-label="Face beauty filters">
+      <button id="skin-smoother-toggle" type="button" class="pattern-swatch beauty-toggle" aria-pressed="false" title="Skin smoother -- softens detected faces' skin (select again to turn off)">
+        <span class="beauty-toggle-icon" aria-hidden="true">🧴</span>
+      </button>
+      <button id="blush-toggle" type="button" class="pattern-swatch beauty-toggle" aria-pressed="false" title="Blush -- adds cheek color to detected faces (select again to turn off)">
+        <span class="beauty-toggle-icon" aria-hidden="true">😊</span>
+      </button>
+    </div>
+    <div id="right-toolbar-divider"></div>
+    <!-- Strip background pattern picker -- swatches populated dynamically
+         in JS from STRIP_PATTERNS. Click one directly, or hover either
+         hand's index fingertip over it for 0.5s. Selecting the already-
+         active swatch again deselects it (plain white background). -->
+    <div id="pattern-picker" aria-label="Strip background pattern"></div>
+  </div>
 
   <!-- Help: opens automatically on page load, and can be reopened anytime
        via the (?) button. -->
@@ -142,6 +151,6 @@
        without needing to complete a pinch. -->
   <button id="size-gesture-cancel" type="button" class="btn-secondary size-gesture-cancel-btn" hidden>Cancel</button>
 
-  <script src="script.js?v=17" type="module"></script>
+  <script src="script.js?v=19" type="module"></script>
 </body>
 </html>
