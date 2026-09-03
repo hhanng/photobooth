@@ -2314,19 +2314,15 @@ function mainLoop(nowMs) {
     } else {
       // Reset so the rectangle snaps to the raw position next time both
       // hands appear, instead of smoothing in from wherever it was left.
+      // No frame is drawn here at all -- it only shows up once a capture
+      // is actually in progress (the "countdown"/"flash" phases below,
+      // entered either by the pinch-and-hold gesture or by clicking
+      // Quick Shot/Countdown Shot), not continuously while idle. A
+      // persistent square guide was tried, but reads as clutter/always-
+      // on rather than something that appears in response to an action.
       FrameSmoothingState.points = null;
       CaptureState.pinchStartMs = null;
       StyleState.leftWasPinching = false;
-
-      // With no hand-frame currently being formed, show a live styled
-      // preview inside the same centered square Quick Shot/Countdown
-      // Shot will actually capture -- so there's continuous visual
-      // feedback for the click-to-capture flow too, not just the hand
-      // gesture. Reuses drawStyledFrame wholesale (style filter, frame
-      // outline, strip crop guide -- skipped automatically here since
-      // the rect is already square).
-      const rect = defaultCaptureRect();
-      drawStyledFrame(rect.x, rect.y, rect.w, rect.h, video, videoW, videoH);
     }
   } else if (CaptureState.phase === "countdown") {
     // Locked: geometry is frozen, but the video feed inside it stays
