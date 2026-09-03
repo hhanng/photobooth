@@ -9,7 +9,7 @@
        time script.js/style.css change, or returning visitors' browsers
        can silently keep serving an old cached copy for up to 10 minutes
        (or longer, depending on the browser) after a new deploy. -->
-  <link rel="stylesheet" href="style.css?v=15" />
+  <link rel="stylesheet" href="style.css?v=17" />
 </head>
 <body>
   <video id="webcam-video" autoplay muted playsinline></video>
@@ -23,10 +23,17 @@
 
   <div id="photo-strip" aria-label="Photo strip"></div>
 
-  <!-- Current style name -- cycled by a left-hand pinch. Always visible
-       (not just while framing) so you know what's selected before you
-       start. -->
-  <div id="style-label" aria-live="polite">No Filter</div>
+  <!-- Bottom-left control row: current style name (cycled by a left-hand
+       pinch, always visible so you know what's selected before you
+       start) plus the skin-smoother toggle -- a plain click/tap button,
+       independent of any gesture, that layers a soft-focus pass on top
+       of whichever style is active. -->
+  <div id="bottom-left-controls">
+    <div id="style-label" aria-live="polite">No Filter</div>
+    <button id="skin-smoother-toggle" type="button" aria-pressed="false" title="Soften skin/detail on top of the current style">
+      ✨ Smooth Skin
+    </button>
+  </div>
 
   <!-- Persistent on-screen signature, matching the same caption baked
        into every saved strip. Always visible, purely decorative. -->
@@ -135,6 +142,6 @@
        without needing to complete a pinch. -->
   <button id="size-gesture-cancel" type="button" class="btn-secondary size-gesture-cancel-btn" hidden>Cancel</button>
 
-  <script src="script.js?v=15" type="module"></script>
+  <script src="script.js?v=17" type="module"></script>
 </body>
 </html>

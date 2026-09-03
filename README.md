@@ -42,6 +42,15 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   photo without covering the subject). The current style's name shows in
   a small pill at the bottom of the screen, and applies live in the
   viewfinder so you can see it before you shoot.
+- **Skin Smoother** — a plain click/tap toggle button (✨ Smooth Skin,
+  next to the style pill), independent of any gesture and independent of
+  which style is active. Layers a second, blurred copy of the same crop
+  on top of the sharp one at partial opacity — a cheap, canvas-native
+  approximation of a beauty filter (no separate face-detection pass) that
+  softens fine detail while the sharp layer still shows through
+  underneath, so it reads as smoothed skin rather than an out-of-focus
+  video. Applies live in the viewfinder and gets baked into the actual
+  captured photo, same as the active style.
 - **Capture** — pinch your RIGHT hand's thumb and index tip together and
   *hold* the pinch for a full second (a small progress ring appears at the
   pinch point so you can see it registering) to lock the frame in place

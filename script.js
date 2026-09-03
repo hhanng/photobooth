@@ -184,6 +184,59 @@ function drawStylePostProcessing(ctx, style, x, y, w, h) {
 }
 // -------------------------------------------------------------------------
 
+// --- Skin smoother toggle -------------------------------------------------
+// An independent on/off button (not a gesture, not part of the style
+// cycle) that layers a soft-focus pass on top of whichever style is
+// currently active: the same crop, blurred and drawn again at partial
+// opacity over the sharp version. The sharp layer still shows through
+// underneath, so it reads as smoothed skin/softened detail rather than an
+// out-of-focus video -- a cheap, canvas-native approximation of a beauty
+// filter, no separate face-detection pass needed.
+const SKIN_SMOOTHER_BLUR_PX = 6;
+const SKIN_SMOOTHER_ALPHA = 0.35;
+
+const SkinSmootherState = {
+  enabled: false,
+};
+
+function toggleSkinSmoother() {
+  SkinSmootherState.enabled = !SkinSmootherState.enabled;
+  updateSkinSmootherButton();
+}
+
+function updateSkinSmootherButton() {
+  const btn = document.getElementById("skin-smoother-toggle");
+  if (!btn) return;
+  btn.classList.toggle("active", SkinSmootherState.enabled);
+  btn.setAttribute("aria-pressed", String(SkinSmootherState.enabled));
+}
+
+// CSS filter strings can't just be concatenated with "blur(...)" when the
+// base is the literal keyword "none" -- "none blur(6px)" is invalid and
+// the whole assignment gets silently ignored by the canvas context, not
+// just the "none" part. Swap it out for a bare blur in that case.
+function withBlur(filterString, blurPx) {
+  const base = filterString === "none" ? "" : `${filterString} `;
+  return `${base}blur(${blurPx}px)`;
+}
+
+// Draws one extra blurred, low-opacity copy of the same source crop on
+// top of whatever was just drawn -- shared by the live preview
+// (drawStyledFrame) and the actual capture (capturePhoto) so a captured
+// photo always matches what was previewed. Must be called from inside the
+// same mirrored ctx.translate/scale(-1,1) block as the main draw, right
+// after it and before that block's ctx.restore(), so the smoothed layer
+// lines up pixel-for-pixel with the sharp one underneath.
+function drawSkinSmootherPass(ctx, style, video, srcX, srcY, srcW, srcH, destW, destH) {
+  if (!SkinSmootherState.enabled) return;
+  ctx.filter = withBlur(style.filter, SKIN_SMOOTHER_BLUR_PX);
+  ctx.globalAlpha = SKIN_SMOOTHER_ALPHA;
+  ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, destW, destH);
+  ctx.globalAlpha = 1;
+  ctx.filter = "none";
+}
+// -------------------------------------------------------------------------
+
 // --- Photo strip + auto-save --------------------------------------------
 const STRIP_SLOT_COUNT = 4;
 
@@ -671,6 +724,7 @@ function drawStyledFrame(rectX, rectY, rectW, rectH, video, videoW, videoH) {
   ctx.scale(-1, 1);
   ctx.filter = style.filter;
   ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, rectW, rectH);
+  drawSkinSmootherPass(ctx, style, video, srcX, srcY, srcW, srcH, rectW, rectH);
   ctx.restore();
 
   // Grain / decorative overlay, still within the same clip.
@@ -767,6 +821,7 @@ function capturePhoto(video, videoW, videoH, rectX, rectY, rectW, rectH) {
   pctx.scale(-1, 1);
   pctx.filter = style.filter;
   pctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+  drawSkinSmootherPass(pctx, style, video, srcX, srcY, srcW, srcH, outW, outH);
   pctx.restore();
 
   drawStylePostProcessing(pctx, style, 0, 0, outW, outH);
@@ -1723,6 +1778,8 @@ async function init() {
   PhotoPreview.init();
   HelpModal.init();
   HelpModal.open();
+  document.getElementById("skin-smoother-toggle").addEventListener("click", toggleSkinSmoother);
+  updateSkinSmootherButton();
   await Promise.all([Webcam.init(), HandTracker.init()]);
   requestAnimationFrame(mainLoop);
 }

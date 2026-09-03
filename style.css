@@ -81,16 +81,27 @@ html, body {
   color: var(--text);
 }
 
-/* Active style name -- cycled by a left-hand pinch. Small and unobtrusive,
-   bottom-center, out of the way of the frame/countdown/skip UI above it. */
-#style-label {
+/* Bottom-left control row: style-label + the skin-smoother toggle,
+   bottom-center-ish, out of the way of the frame/countdown UI above it.
+   Anchored next to the strip (like #status-bar is at the top) rather than
+   centered, so it can't collide with the pattern-picker swatches growing
+   in from the right. Wraps and caps its own width on narrow viewports for
+   the same reason #status-bar does. */
+#bottom-left-controls {
   position: fixed;
   bottom: 1rem;
-  /* Anchored next to the strip (like #status-bar is at the top) rather
-     than centered, so it can't collide with the pattern-picker swatches
-     growing in from the right as more patterns get added. */
   left: calc(var(--strip-width, 132px) + 1rem);
   z-index: 10;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-width: calc(100vw - var(--strip-width, 132px) - 2rem);
+}
+
+/* Active style name -- cycled by a left-hand pinch. Small and
+   unobtrusive; purely informational, not itself interactive. */
+#style-label {
   font-size: 0.7rem;
   letter-spacing: 0.04em;
   padding: 0.25rem 0.7rem;
@@ -100,6 +111,32 @@ html, body {
   color: rgba(255, 255, 255, 0.65);
   backdrop-filter: blur(4px);
   pointer-events: none;
+}
+
+/* Skin-smoother toggle: a plain click/tap button (not a gesture), same
+   small pill scale as #style-label so the two read as one control row. */
+#skin-smoother-toggle {
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.6);
+  border: 1px solid var(--border);
+  color: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+#skin-smoother-toggle:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+#skin-smoother-toggle.active {
+  background: rgba(78, 201, 176, 0.18);
+  border-color: var(--ok);
+  color: var(--ok);
 }
 
 /* Persistent signature, bottom-center -- matches the same "/by hhan/"
