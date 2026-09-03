@@ -113,6 +113,22 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   or distorted. Both Save Strip and Save All 4 can be used in the same
   round if you want both; **Done** is what actually clears the strip for
   the next round. No new capture can start while this window is open.
+- **Mobile / tablet layout** — the strip and pattern-picker sizing both
+  originally scaled off `window.innerHeight` alone, which looks right on
+  a wide/short desktop window but would blow the strip up past half the
+  screen's *width* on a narrow/tall phone, crowding out room to actually
+  form the two-hand frame gesture. The strip is now also capped to a
+  fraction of the viewport width (whichever constraint -- height or
+  width -- is tighter wins) and, once capped, sits vertically centered
+  instead of stretching top to bottom at an unreasonable size; the
+  pattern swatches shrink via `clamp()` against whichever of viewport
+  width/height is tighter (so a short landscape phone shrinks them too,
+  not just a narrow portrait one); the status bar wraps onto more lines
+  rather than overflowing behind the (?) button; and modal cards cap
+  their own height with a scrollbar as a safety net on short (landscape
+  phone) viewports. On a normal desktop window none of this visibly
+  changes anything -- the height-based sizing stays the binding
+  constraint there, same as before.
 
 ## Status
 

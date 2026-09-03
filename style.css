@@ -51,12 +51,18 @@ html, body {
   z-index: 10;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--panel);
   backdrop-filter: blur(6px);
+  /* Leaves room for the (?) help button on narrow viewports (its own
+     right:1rem offset plus its widest -- 40px on mobile -- size, with a
+     little breathing room) and wraps onto a second line rather than
+     overflowing under/behind it. */
+  max-width: calc(100vw - var(--strip-width, 132px) - 5rem);
 }
 
 #brand {
@@ -147,13 +153,19 @@ html, body {
 #pattern-picker {
   position: fixed;
   top: 50%;
-  right: 1rem;
+  /* Scales down on narrow viewports along with the swatches themselves,
+     so the column doesn't eat into the (already width-capped) middle
+     framing area any more than it has to. */
+  right: clamp(0.4rem, 2vw, 1rem);
   transform: translateY(-50%);
   z-index: 15;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.6rem;
+  /* min(vw, vh) so a short LANDSCAPE viewport shrinks the gap same as a
+     narrow portrait one does -- vw alone stays large in landscape and
+     the column would overflow its own max-height below instead. */
+  gap: clamp(0.3rem, min(1.5vw, 1.5vh), 0.6rem);
   /* Safety net if the pattern list ever grows enough to not fit vertically
      centered -- scrolls instead of running into the top/bottom UI. */
   max-height: 80vh;
@@ -162,8 +174,13 @@ html, body {
 
 .pattern-swatch {
   position: relative;
-  width: 60px;
-  height: 60px;
+  /* Same 60px as before on desktop; shrinks on a narrow phone-portrait
+     viewport (9vw) OR a short phone-landscape one (9vh) -- min() picks
+     whichever dimension is actually tight -- so the column stays out of
+     the way of the middle framing area and doesn't overflow its own
+     max-height, but never below 38px, still comfortably tappable. */
+  width: clamp(38px, min(9vw, 9vh), 60px);
+  height: clamp(38px, min(9vw, 9vh), 60px);
   border-radius: 50%;
   border: 2px solid var(--border);
   background-size: cover;
@@ -241,18 +258,22 @@ html, body {
 }
 
 /* Classic photobooth strip: a narrow cream paper column docked flush to
-   the left, running the full height of the screen (top edge to bottom
-   edge), with a soft drop shadow like it's hanging in front of the
+   the left, with a soft drop shadow like it's hanging in front of the
    video. Slot size and all margins/gaps are computed in JS
-   (PhotoStrip.layout(), keyed off window.innerHeight) and set as CSS
-   custom properties here, so the strip always exactly touches top and
-   bottom regardless of viewport size, with square photo slots and a
-   proportionally larger bottom margin (the classic strip's "tail"). */
+   (PhotoStrip.layout(), keyed off both window.innerHeight and
+   window.innerWidth) and set as CSS custom properties here. On a
+   wide/short window --strip-height comes out to exactly 100vh, so
+   vertically centering it (top: 50% + translateY) looks identical to
+   the old top:0/height:100vh -- it only visibly shrinks and centers
+   itself once a narrow/tall viewport (phone portrait) caps the strip's
+   width instead, so it never stretches edge to edge at an unreasonable
+   size. */
 #photo-strip {
   position: fixed;
-  top: 0;
+  top: 50%;
   left: 0;
-  height: 100vh;
+  height: var(--strip-height, 100vh);
+  transform: translateY(-50%);
   z-index: 10;
   width: var(--strip-width, 132px);
   padding: var(--strip-top-margin, 16px) var(--strip-side-margin, 16px) var(--strip-bottom-margin, 48px);
@@ -363,6 +384,11 @@ html, body {
 
 .modal-card {
   width: min(320px, 90vw);
+  /* Guards short viewports (phones in landscape) where a tall card --
+     round-complete's strip preview especially -- could otherwise run off
+     both edges of the screen with no way to reach its own buttons. */
+  max-height: 90vh;
+  overflow-y: auto;
   padding: 1.25rem;
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -609,3 +635,36 @@ html, body {
 .size-gesture-cancel-btn[hidden] {
   display: none;
 }
+
+/* --- Mobile / small-viewport adjustments ---------------------------------
+   Everything else in this file already scales via CSS custom properties
+   computed in JS (--strip-*, keyed off both innerWidth and innerHeight --
+   see PhotoStrip.layout()) or clamp() (the pattern swatches). This block
+   covers the couple of things that need an actual breakpoint: bumping
+   small tap targets up to a comfortable touch size, and giving the
+   full-screen photo preview more headroom on short (phone landscape)
+   viewports so its Keep/Retake buttons can't get pushed off-screen. */
+@media (max-width: 480px) {
+  #help-button {
+    width: 40px;
+    height: 40px;
+    font-size: 1.1rem;
+  }
+
+  .slot-save-btn {
+    width: 26px;
+    height: 26px;
+    font-size: 13px;
+  }
+}
+
+@media (max-height: 480px) {
+  .photo-preview-image {
+    max-height: 50vh;
+  }
+
+  .photo-preview-overlay {
+    gap: 0.75rem;
+  }
+}
+/* -------------------------------------------------------------------------- */

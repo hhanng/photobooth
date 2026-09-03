@@ -200,6 +200,16 @@ const STRIP_TOP_MARGIN_RATIO = 0.12;
 const STRIP_GAP_RATIO = 0.1;
 const STRIP_BOTTOM_MARGIN_RATIO = 0.35;
 
+// Sizing the strip purely off window.innerHeight (below) looks right on a
+// wide/short desktop window, but on a narrow/tall phone screen it would
+// blow up to well over half the viewport's *width* -- crowding out the
+// pattern-picker column and leaving no room in the middle to actually
+// form the two-hand frame gesture. Capping it to a fraction of the
+// viewport width too, and letting whichever constraint is tighter win,
+// keeps it a sensible size on any screen. On desktop this ratio is never
+// the binding constraint, so nothing changes there.
+const STRIP_MAX_WIDTH_RATIO = 0.3;
+
 // The strip's total height, in the same "multiples of one slot" units --
 // shared by PhotoStrip.layout() (on-screen, slotSize = window.innerHeight
 // / this) and the pattern-tiling setup below (composed image, whose total
@@ -800,17 +810,26 @@ const PhotoStrip = {
     window.addEventListener("resize", () => this.layout());
   },
 
-  // Computes slot size + all margins/gaps from window.innerHeight (see
-  // the STRIP_*_RATIO constants above) and sets them as CSS custom
-  // properties, so the strip's CSS always exactly spans top to bottom
-  // with square slots, at any viewport size.
+  // Computes slot size + all margins/gaps from window.innerHeight AND
+  // window.innerWidth (see STRIP_*_RATIO / STRIP_MAX_WIDTH_RATIO above)
+  // and sets them as CSS custom properties. On a wide/short window the
+  // height-driven size wins and the strip spans exactly top to bottom,
+  // same as always; on a narrow/tall one the width cap wins instead, so
+  // the strip shrinks and (via #photo-strip's own top:50%/translateY
+  // CSS) sits vertically centered rather than stretching edge to edge at
+  // an unreasonable width.
   layout() {
-    const slotSize = window.innerHeight / STRIP_TOTAL_RATIO_UNITS;
+    const heightSlotSize = window.innerHeight / STRIP_TOTAL_RATIO_UNITS;
+    const maxStripWidth = window.innerWidth * STRIP_MAX_WIDTH_RATIO;
+    const widthSlotSize = maxStripWidth / (1 + STRIP_SIDE_MARGIN_RATIO * 2);
+    const slotSize = Math.min(heightSlotSize, widthSlotSize);
+
     const sideMargin = slotSize * STRIP_SIDE_MARGIN_RATIO;
     const topMargin = slotSize * STRIP_TOP_MARGIN_RATIO;
     const gap = slotSize * STRIP_GAP_RATIO;
     const bottomMargin = slotSize * STRIP_BOTTOM_MARGIN_RATIO;
     const width = slotSize + sideMargin * 2;
+    const height = topMargin + slotSize * STRIP_SLOT_COUNT + gap * (STRIP_SLOT_COUNT - 1) + bottomMargin;
 
     // Set on the root element (not just the strip container) so other UI
     // -- like #status-bar -- can also read --strip-width to avoid
@@ -822,12 +841,13 @@ const PhotoStrip = {
     style.setProperty("--strip-bottom-margin", `${bottomMargin}px`);
     style.setProperty("--strip-gap", `${gap}px`);
     style.setProperty("--strip-width", `${width}px`);
-    // The strip's total height IS window.innerHeight by construction
-    // (slotSize * STRIP_TOTAL_RATIO_UNITS === window.innerHeight), so
-    // this is the on-screen equivalent of the same tile-height math
-    // preloadStripPatterns() uses for the composed image -- see
+    style.setProperty("--strip-height", `${height}px`);
+    // Tile size tracks the strip's own actual rendered height (not
+    // always window.innerHeight anymore, now that it can be
+    // width-capped) so the pattern still reads as the intended 2-3
+    // repeats regardless of which constraint won above -- see
     // STRIP_PATTERN_TARGET_REPEATS for what's actually being tuned here.
-    style.setProperty("--strip-pattern-tile-size", `${window.innerHeight / STRIP_PATTERN_TARGET_REPEATS}px`);
+    style.setProperty("--strip-pattern-tile-size", `${height / STRIP_PATTERN_TARGET_REPEATS}px`);
   },
 
   _renderEmptySlot(index) {
