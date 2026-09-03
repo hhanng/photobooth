@@ -537,12 +537,16 @@ html, body {
   cursor: not-allowed;
 }
 
-/* Mobile/tablet-only capture buttons -- hidden by default; the
-   .mobile-capture body class (set by MobileDetect) is what actually
-   shows this row, so it reacts live to resize/orientation change rather
-   than being fixed at page-load time. */
+/* Click-to-capture buttons (Quick Shot / Countdown Shot) -- visible on
+   EVERY device, alongside the two-hand pinch gesture; the .mobile-capture
+   body class (set by MobileDetect) no longer gates whether these show at
+   all, only whether saving prefers the Web Share API (see
+   saveCanvasesAsPng in script.js). They started mobile-only, since
+   forming a precise two-hand frame is awkward on a phone/tablet, but a
+   plain clickable button is just as welcome on desktop -- there was no
+   reason to withhold it there. */
 #mobile-capture-controls {
-  display: none;
+  display: flex;
   position: fixed;
   /* High enough to clear #style-label + #on-screen-signature's own
      bottom-anchored band (they're left-anchored/centered respectively,
@@ -557,15 +561,12 @@ html, body {
   gap: 0.75rem;
 }
 
-body.mobile-capture #mobile-capture-controls {
-  display: flex;
-}
-
 /* The `hidden` attribute's UA-stylesheet `display: none` would otherwise
-   lose to the more specific rule just above (same pattern already hit
-   elsewhere in this file, e.g. .size-picker-row[hidden]) -- this is what
-   MobileCaptureControls.update() actually toggles while a modal is open. */
-body.mobile-capture #mobile-capture-controls[hidden] {
+   lose to the more specific `display: flex` just above (same pattern
+   already hit elsewhere in this file, e.g. .size-picker-row[hidden]) --
+   this is what MobileCaptureControls.update() actually toggles while a
+   modal is open. */
+#mobile-capture-controls[hidden] {
   display: none;
 }
 

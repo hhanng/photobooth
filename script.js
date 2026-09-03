@@ -334,17 +334,18 @@ function updateOnScreenStripPattern() {
 // -------------------------------------------------------------------------
 
 // --- Mobile/tablet detection ----------------------------------------------
-// Drives two things: showing the extra on-screen capture buttons (see
-// MobileCaptureControls further down), and choosing Web Share API vs.
-// direct download for saves. "pointer: coarse" matches when the device's
-// PRIMARY input is imprecise (a finger, not a mouse/trackpad) -- a
-// touch-capable laptop still reports pointer:fine there, since its
-// primary input is the trackpad, which is exactly the distinction we
-// want (show these buttons for phones/tablets, not just "has a
-// touchscreen"). OR'd with a plain touch-capability + narrow-viewport
-// check as a fallback for the rare browser without pointer-media
-// support. Re-evaluated on resize/orientation change, not just once at
-// load, via a body class other CSS/JS reads.
+// Drives whether saving prefers the Web Share API over a direct download
+// (see saveCanvasesAsPng) -- the click-to-capture buttons themselves are
+// visible on every device now, this no longer gates that. "pointer:
+// coarse" matches when the device's PRIMARY input is imprecise (a
+// finger, not a mouse/trackpad) -- a touch-capable laptop still reports
+// pointer:fine there, since its primary input is the trackpad, which is
+// exactly the distinction that matters for save behavior (share sheets
+// are a phone/tablet UX, not just "has a touchscreen"). OR'd with a
+// plain touch-capability + narrow-viewport check as a fallback for the
+// rare browser without pointer-media support. Re-evaluated on resize/
+// orientation change, not just once at load, via a body class other
+// CSS/JS reads.
 const MobileDetect = {
   isMobile: false,
 
@@ -593,7 +594,7 @@ function startCountdown(x, y, w, h, nowMs) {
 }
 // -------------------------------------------------------------------------
 
-// --- Mobile/tablet capture buttons -----------------------------------------
+// --- Click-to-capture buttons -----------------------------------------
 // A centered square, sized off whichever viewport dimension is smaller --
 // the same role a hand-formed rectangle plays elsewhere, but fixed and
 // always available, since Quick Shot/Countdown Shot (see
@@ -2117,9 +2118,9 @@ function canStartNewCapture() {
   );
 }
 
-// Two extra buttons, visible only on touch-primary devices (see
-// MobileDetect), alongside -- not instead of -- the two-hand pinch
-// gesture; both work at the same time. Both reuse the exact same capture
+// Two extra buttons, visible on every device, alongside -- not instead
+// of -- the two-hand pinch gesture; both work at the same time. Both
+// reuse the exact same capture
 // state machine the hand gesture drives, just entered by a tap instead of
 // a pinch-hold, using defaultCaptureRect() in place of a hand-formed one:
 // - Quick Shot skips the countdown entirely, capturing immediately and
@@ -2317,17 +2318,15 @@ function mainLoop(nowMs) {
       CaptureState.pinchStartMs = null;
       StyleState.leftWasPinching = false;
 
-      // On mobile, with no hand-frame currently being formed, show a
-      // live styled preview inside the same centered square Quick Shot/
-      // Countdown Shot will actually capture -- so there's continuous
-      // visual feedback for the tap-to-capture flow too, not just the
-      // hand gesture. Reuses drawStyledFrame wholesale (style filter,
-      // frame outline, strip crop guide -- skipped automatically here
-      // since the rect is already square).
-      if (MobileDetect.isMobile) {
-        const rect = defaultCaptureRect();
-        drawStyledFrame(rect.x, rect.y, rect.w, rect.h, video, videoW, videoH);
-      }
+      // With no hand-frame currently being formed, show a live styled
+      // preview inside the same centered square Quick Shot/Countdown
+      // Shot will actually capture -- so there's continuous visual
+      // feedback for the click-to-capture flow too, not just the hand
+      // gesture. Reuses drawStyledFrame wholesale (style filter, frame
+      // outline, strip crop guide -- skipped automatically here since
+      // the rect is already square).
+      const rect = defaultCaptureRect();
+      drawStyledFrame(rect.x, rect.y, rect.w, rect.h, video, videoW, videoH);
     }
   } else if (CaptureState.phase === "countdown") {
     // Locked: geometry is frozen, but the video feed inside it stays

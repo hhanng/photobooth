@@ -93,24 +93,25 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   is what gets baked in, so you can keep cycling styles during the
   countdown if you change your mind), a shutter flash fires, and the
   frame unlocks — ready to pinch-and-hold again for the next shot.
-- **Mobile/tablet capture buttons** — on touch-primary devices (detected
-  via `pointer: coarse`, with a touch+narrow-viewport fallback — a
-  touch-capable laptop with a trackpad as its primary input doesn't
-  count), two extra buttons sit bottom-center: **📸 Quick Shot** captures
-  immediately with no countdown, using a centered square sized off
-  whichever viewport dimension is smaller (the same role a hand-formed
-  rectangle plays elsewhere); **⏱ Countdown Shot** runs the exact same
-  4-second countdown as the pinch gesture, using that same centered
-  square. Both work *alongside* the two-hand pinch gesture, not instead
-  of it — either method is available at any time, and both apply
-  whichever style and beauty-filter toggles are currently active, the
-  same way hand-gesture capture does (they share the literal same
-  `capturePhoto`/`startCountdown` code, not a parallel implementation).
-  When idle with no hand-frame being formed, that same centered square
-  shows a live styled preview too, so there's visual feedback for the
-  tap-to-capture flow before you even tap. The buttons grey out (but stay
-  visible) during an in-progress countdown/flash, and hide entirely
-  behind any open modal.
+- **Click-to-capture buttons** — on every device, two extra buttons sit
+  bottom-center: **📸 Quick Shot** captures immediately with no
+  countdown, using a centered square sized off whichever viewport
+  dimension is smaller (the same role a hand-formed rectangle plays
+  elsewhere); **⏱ Countdown Shot** runs the exact same 4-second countdown
+  as the pinch gesture, using that same centered square. Both work
+  *alongside* the two-hand pinch gesture, not instead of it — either
+  method is available at any time, and both apply whichever style and
+  beauty-filter toggles are currently active, the same way hand-gesture
+  capture does (they share the literal same `capturePhoto`/
+  `startCountdown` code, not a parallel implementation). When idle with
+  no hand-frame being formed, that same centered square shows a live
+  styled preview too, so there's visual feedback for the click-to-capture
+  flow before you even click. The buttons grey out (but stay visible)
+  during an in-progress countdown/flash, and hide entirely behind any
+  open modal. (They started life as a mobile/tablet-only feature, since
+  forming a precise two-hand frame is awkward on a touchscreen, but
+  there was no real reason to withhold a plain clickable button from
+  desktop either.)
 - **Photo preview + retake** — every capture shows full-screen, on its own,
   for 4 seconds before it ever reaches the strip, with **Retake** and
   **Keep** buttons underneath. Letting the 4 seconds run out counts as an
