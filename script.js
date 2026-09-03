@@ -1844,26 +1844,79 @@ const FACE_LM = {
   MOUTH_RIGHT: 291,
 };
 
-// A many-stop gradient approximating a soft gaussian falloff (not a flat
-// disc with a hard edge) at a moderate peak alpha, then blended with
-// "soft-light" -- not plain alpha-over -- so it reads as tinting the skin
-// (picks up the underlying tone/shading) rather than a flat sticker sitting
-// on top of it. "multiply" is the other natural choice here if soft-light
-// ever reads too faint on a given skin tone/lighting -- worth trying if
-// this needs retuning.
-const BLUSH_RADIUS_RATIO = 0.1; // relative to face width -- a touch smaller than the first version
-const BLUSH_COLOR_RGB = "255, 45, 100";
+// Shape: a wide, flat, horizontal SWEEP (like a diffused brush stroke
+// from under the eye out toward the ear) rather than a round dot -- a
+// round blob reads as "drawn on" almost no matter how soft its edge is;
+// the elongated, angled sweep is what actually reads as blush. Rendered
+// by stretching a small pre-blurred circular texture (see
+// getBlushTexture) into an ellipse via drawImage, rather than filling an
+// elliptical path with a plain gradient -- a REAL blur pass (rendered
+// once, in its own undistorted pixel space, then cached) gives a soft,
+// photographic diffusion no number of gradient color-stops can quite
+// fake, and caching it means every actual draw is just one cheap
+// drawImage call.
+const BLUSH_RX_RATIO = 0.22; // horizontal half-width, relative to face width
+const BLUSH_RY_RATIO = 0.09; // vertical half-height -- flat and wide, not round
+const BLUSH_COLOR_RGB = "255, 120, 120"; // warm coral-pink, closer to a natural flush than a cool magenta
+// Peak alpha here reads noticeably weaker than these numbers by the time
+// it's on screen -- the blur below (bigger than the circle it's blurring)
+// dilutes the center by averaging in the fully-transparent area just past
+// the circle's edge, which is deliberate (that's what makes the falloff
+// actually soft) but has to be compensated for with higher stops than a
+// crisp, unblurred gradient would need.
 const BLUSH_STOPS = [
-  [0, 0.55],
-  [0.25, 0.45],
-  [0.5, 0.28],
-  [0.75, 0.12],
+  [0, 0.9],
+  [0.3, 0.7],
+  [0.55, 0.42],
+  [0.8, 0.15],
   [1, 0],
 ];
-const BLUSH_BLEND_MODE = "soft-light";
+// "soft-light" was tried first (theoretically the more natural of the
+// two -- a diffused-light-style blend) but measured/looked too faint
+// against real skin-tone values even at high stop alphas, since its own
+// math is inherently gentle on top of the alpha the texture already
+// attenuates; "multiply" gives a clearly visible warm tint at the same
+// alpha values while keeping exactly the same soft falloff shape (the
+// blur/gradient already baked into the texture controls that, not the
+// blend mode -- canvas compositing still respects the source's per-pixel
+// alpha under any blend mode).
+const BLUSH_BLEND_MODE = "multiply";
+const BLUSH_TEXTURE_SIZE = 240; // px, the offscreen texture's own resolution
+const BLUSH_TEXTURE_CIRCLE_R = 34; // the sharp-edged circle drawn before blurring
+const BLUSH_TEXTURE_BLUR_PX = 18; // real gaussian blur applied to that circle -- most of the "softness" comes from here, not the gradient stops
 
 function dist(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+// Built once, reused for both cheeks and every frame after that -- a
+// solid gradient-filled circle, blurred in its own small, undistorted
+// canvas (inset well clear of the edge so the blur has room to fade to
+// fully transparent before it would otherwise get clipped), which
+// drawBlushCheek then stretches into the actual on-face ellipse.
+let blushTextureCanvas = null;
+function getBlushTexture() {
+  if (blushTextureCanvas) return blushTextureCanvas;
+  const size = BLUSH_TEXTURE_SIZE;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const cx = size / 2;
+  const cy = size / 2;
+
+  const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, BLUSH_TEXTURE_CIRCLE_R);
+  for (const [stop, alpha] of BLUSH_STOPS) {
+    gradient.addColorStop(stop, `rgba(${BLUSH_COLOR_RGB}, ${alpha})`);
+  }
+  ctx.filter = `blur(${BLUSH_TEXTURE_BLUR_PX}px)`;
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(cx, cy, BLUSH_TEXTURE_CIRCLE_R, 0, Math.PI * 2);
+  ctx.fill();
+
+  blushTextureCanvas = canvas;
+  return canvas;
 }
 
 // Maps just the anchor landmarks this module actually uses (not all 478)
@@ -1888,6 +1941,13 @@ function computeFaceGeometry(p) {
     faceWidth: dist(p.leftEdge, p.rightEdge),
     leftCheek: blendCheekPoint(p.leftEyeOuter, p.mouthLeft, p.leftEdge),
     rightCheek: blendCheekPoint(p.rightEyeOuter, p.mouthRight, p.rightEdge),
+    // The natural "sweep" direction for each cheek -- from the eye's
+    // outer corner out toward the face edge, which is roughly how you'd
+    // actually drag a blush brush; also naturally mirrors correctly
+    // between the left/right cheeks since the two vectors point in
+    // opposite x-directions.
+    leftCheekAngle: Math.atan2(p.leftEdge.y - p.leftEyeOuter.y, p.leftEdge.x - p.leftEyeOuter.x),
+    rightCheekAngle: Math.atan2(p.rightEdge.y - p.rightEyeOuter.y, p.rightEdge.x - p.rightEyeOuter.x),
   };
 }
 
@@ -1903,25 +1963,22 @@ function blendCheekPoint(eyeOuter, mouthCorner, faceEdge) {
   };
 }
 
-function drawBlushCheek(ctx, center, r) {
-  const gradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, r);
-  for (const [stop, alpha] of BLUSH_STOPS) {
-    gradient.addColorStop(stop, `rgba(${BLUSH_COLOR_RGB}, ${alpha})`);
-  }
+function drawBlushCheek(ctx, center, rx, ry, angle) {
+  const texture = getBlushTexture();
   ctx.save();
   ctx.filter = "none";
   ctx.globalCompositeOperation = BLUSH_BLEND_MODE;
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.arc(center.x, center.y, r, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.translate(center.x, center.y);
+  ctx.rotate(angle);
+  ctx.drawImage(texture, -rx, -ry, rx * 2, ry * 2);
   ctx.restore();
 }
 
 function drawFaceBlush(ctx, geo) {
-  const r = geo.faceWidth * BLUSH_RADIUS_RATIO;
-  drawBlushCheek(ctx, geo.leftCheek, r);
-  drawBlushCheek(ctx, geo.rightCheek, r);
+  const rx = geo.faceWidth * BLUSH_RX_RATIO;
+  const ry = geo.faceWidth * BLUSH_RY_RATIO;
+  drawBlushCheek(ctx, geo.leftCheek, rx, ry, geo.leftCheekAngle);
+  drawBlushCheek(ctx, geo.rightCheek, rx, ry, geo.rightCheekAngle);
 }
 // -------------------------------------------------------------------------
 
@@ -2327,4 +2384,5 @@ async function init() {
 }
 
 init();
+
 

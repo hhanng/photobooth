@@ -60,16 +60,25 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
     obvious "filter edge" the moment it's even slightly off; a gentle,
     edge-less blur over everything doesn't have an edge to notice, and
     skin is what visibly benefits from a small blur anyway.
-  - **Blush** draws a soft pink-red radial gradient on the upper cheeks
-    of every detected face — a many-stop gradient approximating a
-    gaussian falloff (no hard edge, fully transparent past the outer
-    radius) blended with the canvas `soft-light` composite mode rather
-    than plain alpha-over, so it reads as tinting the skin (picks up the
-    underlying tone/shading) instead of a flat sticker sitting on top of
-    it. Cheek position is a geometric blend of eye-corner, mouth-corner,
-    and face-edge landmarks (rather than a single less-certain "cheek"
-    index), weighted toward eye height for a natural upper-cheek
-    placement.
+  - **Blush** paints a wide, flat, warm coral-pink SWEEP across the upper
+    cheeks of every detected face — like a diffused brush stroke from
+    under the eye out toward the ear, angled to follow the eye-to-face-
+    edge line — rather than a round dot, which reads as "drawn on"
+    almost no matter how soft its edge is. Rendered by stretching a
+    small pre-blurred circular texture into an ellipse: a real gaussian
+    blur pass, rendered once into its own small offscreen canvas and
+    cached, gives a genuinely soft photographic diffusion no number of
+    gradient color-stops alone can quite fake, and every actual draw
+    after that is just one cheap `drawImage` call. Blended with the
+    canvas `multiply` composite mode (tried `soft-light` first — more
+    "natural" in theory, but measured/looked too faint against real
+    skin-tone values) so it reads as tinting the skin rather than a flat
+    sticker sitting on top of it, while keeping the same soft falloff
+    the blur/gradient already bake in (canvas compositing still respects
+    per-pixel alpha under any blend mode). Cheek position is a geometric
+    blend of eye-corner, mouth-corner, and face-edge landmarks (rather
+    than a single less-certain "cheek" index), weighted toward eye
+    height for a natural upper-cheek placement.
 - **Capture** — pinch your RIGHT hand's thumb and index tip together and
   *hold* the pinch for a full second (a small progress ring appears at the
   pinch point so you can see it registering) to lock the frame in place
