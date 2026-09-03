@@ -333,6 +333,35 @@ function updateOnScreenStripPattern() {
 }
 // -------------------------------------------------------------------------
 
+// --- Mobile/tablet detection ----------------------------------------------
+// Drives two things: showing the extra on-screen capture buttons (see
+// MobileCaptureControls further down), and choosing Web Share API vs.
+// direct download for saves. "pointer: coarse" matches when the device's
+// PRIMARY input is imprecise (a finger, not a mouse/trackpad) -- a
+// touch-capable laptop still reports pointer:fine there, since its
+// primary input is the trackpad, which is exactly the distinction we
+// want (show these buttons for phones/tablets, not just "has a
+// touchscreen"). OR'd with a plain touch-capability + narrow-viewport
+// check as a fallback for the rare browser without pointer-media
+// support. Re-evaluated on resize/orientation change, not just once at
+// load, via a body class other CSS/JS reads.
+const MobileDetect = {
+  isMobile: false,
+
+  init() {
+    const coarseQuery = window.matchMedia("(pointer: coarse)");
+    const update = () => {
+      const hasTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+      this.isMobile = coarseQuery.matches || (hasTouch && window.innerWidth <= 900);
+      document.body.classList.toggle("mobile-capture", this.isMobile);
+    };
+    update();
+    coarseQuery.addEventListener("change", update);
+    window.addEventListener("resize", update);
+  },
+};
+// -------------------------------------------------------------------------
+
 const Webcam = {
   stream: null,
   videoEl: null,
@@ -561,6 +590,25 @@ function startCountdown(x, y, w, h, nowMs) {
   CaptureState.phase = "countdown";
   CaptureState.lockedRect = { x, y, w, h };
   CaptureState.countdownStartMs = nowMs;
+}
+// -------------------------------------------------------------------------
+
+// --- Mobile/tablet capture buttons -----------------------------------------
+// A centered square, sized off whichever viewport dimension is smaller --
+// the same role a hand-formed rectangle plays elsewhere, but fixed and
+// always available, since Quick Shot/Countdown Shot (see
+// MobileCaptureControls) don't require any hand tracking at all. An easy
+// constant to retune if it ends up feeling too tight/loose in practice.
+const DEFAULT_CAPTURE_SIZE_RATIO = 0.72;
+
+function defaultCaptureRect() {
+  const size = Math.min(Canvas.width, Canvas.height) * DEFAULT_CAPTURE_SIZE_RATIO;
+  return {
+    x: (Canvas.width - size) / 2,
+    y: (Canvas.height - size) / 2,
+    w: size,
+    h: size,
+  };
 }
 // -------------------------------------------------------------------------
 
@@ -1096,7 +1144,9 @@ function composeStripImage(photos) {
 }
 
 // Triggers a browser download of a canvas as a PNG -- a temporary
-// off-DOM <a download> click, the standard client-side technique.
+// off-DOM <a download> click, the standard client-side technique. Always
+// the desktop save path (untouched by the Web Share stuff below), and
+// the mobile fallback when sharing isn't available/doesn't succeed.
 function downloadCanvasAsPng(canvas, filename) {
   canvas.toBlob((blob) => {
     const url = URL.createObjectURL(blob);
@@ -1110,9 +1160,81 @@ function downloadCanvasAsPng(canvas, filename) {
   }, "image/png");
 }
 
+// --- Save: Web Share API (mobile) with direct-download fallback ---------
+// A plain <a download> click on a phone/tablet browser typically lands
+// the file in a generic Downloads/Files app almost nobody thinks to
+// check, not the actual Photos/gallery app. The Web Share API's native
+// share sheet -- with a "Save Image" (or equivalent) action right in it
+// -- is what actually gets a photo there. Desktop is untouched: it
+// always uses downloadCanvasAsPng directly, same as before this feature,
+// since file-share support on desktop browsers is inconsistent and
+// downloads there already land somewhere the user expects.
+const SAVE_TOAST_DURATION_MS = 3200;
+
+function canvasToBlobAsync(canvas) {
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+}
+
+let saveToastHideTimeout = null;
+function showSaveToast(message) {
+  const el = document.getElementById("save-toast");
+  if (!el) return;
+  el.textContent = message;
+  el.hidden = false;
+  clearTimeout(saveToastHideTimeout);
+  saveToastHideTimeout = setTimeout(() => {
+    el.hidden = true;
+  }, SAVE_TOAST_DURATION_MS);
+}
+
+// Returns true if the share sheet was actually shown (whether or not the
+// user picked something in it -- both count as "handled", so the caller
+// doesn't also dump a duplicate direct-download on top). Returns false
+// only when sharing isn't available/supported for these files, or the
+// attempt itself errored out, so the caller knows to fall back.
+async function tryShareFiles(files) {
+  if (!navigator.canShare || !navigator.share) return false;
+  if (!navigator.canShare({ files })) return false;
+  try {
+    await navigator.share({ files });
+    return true;
+  } catch (err) {
+    // The user closing the share sheet without picking anything throws
+    // AbortError -- that's a normal, deliberate outcome, not a failure to
+    // fall back from (that would immediately dump an unwanted duplicate
+    // direct-download on someone who simply changed their mind).
+    if (err && err.name === "AbortError") return true;
+    console.warn("[photobooth] navigator.share failed, falling back to direct download:", err);
+    return false;
+  }
+}
+
+// The one function everything else in this file calls to save an image
+// (or several at once -- e.g. "Save All 4" -- as ONE combined share, so
+// the OS handles them together in a single native action instead of
+// popping up several share sheets back to back). canvases/filenames are
+// index-matched, same length. On mobile, tries sharing first; falls back
+// to downloadCanvasAsPng for each (staggered, same as before) if sharing
+// isn't available/supported/fails -- desktop always goes straight there.
+async function saveCanvasesAsPng(canvases, filenames) {
+  if (MobileDetect.isMobile) {
+    const blobs = await Promise.all(canvases.map(canvasToBlobAsync));
+    if (blobs.every(Boolean)) {
+      const files = blobs.map((blob, i) => new File([blob], filenames[i], { type: "image/png" }));
+      if (await tryShareFiles(files)) return;
+    }
+  }
+
+  canvases.forEach((canvas, i) => {
+    setTimeout(() => downloadCanvasAsPng(canvas, filenames[i]), i * ROUND_INDIVIDUAL_STAGGER_MS);
+  });
+  if (MobileDetect.isMobile) showSaveToast("Saved to your downloads");
+}
+// -------------------------------------------------------------------------
+
 function composeAndDownloadStrip(photos) {
   const canvas = composeStripImage(photos);
-  downloadCanvasAsPng(canvas, `photobooth-strip-${Date.now()}.png`);
+  saveCanvasesAsPng([canvas], [`photobooth-strip-${Date.now()}.png`]);
 }
 // -------------------------------------------------------------------------
 
@@ -1183,7 +1305,7 @@ const SizePicker = {
     const ctx = canvas.getContext("2d");
     ctx.drawImage(this.photo.canvas, 0, 0, width, height);
 
-    downloadCanvasAsPng(canvas, `photobooth-photo-${this.photo.timestamp}-${width}x${height}.png`);
+    saveCanvasesAsPng([canvas], [`photobooth-photo-${this.photo.timestamp}-${width}x${height}.png`]);
     this.close();
   },
 };
@@ -1296,12 +1418,9 @@ const RoundCompleteModal = {
     const width = useSquare ? STRIP_COMPOSE_SLOT_SIZE : this.customWidth;
     const height = useSquare ? STRIP_COMPOSE_SLOT_SIZE : this.customHeight;
 
-    this.photos.forEach((photo, i) => {
-      setTimeout(() => {
-        const canvas = cropPhotoToCanvas(photo, width, height);
-        downloadCanvasAsPng(canvas, `photobooth-photo-${i + 1}-${photo.timestamp}-${width}x${height}.png`);
-      }, i * ROUND_INDIVIDUAL_STAGGER_MS);
-    });
+    const canvases = this.photos.map((photo) => cropPhotoToCanvas(photo, width, height));
+    const filenames = this.photos.map((photo, i) => `photobooth-photo-${i + 1}-${photo.timestamp}-${width}x${height}.png`);
+    saveCanvasesAsPng(canvases, filenames);
   },
 
   // --- Hand-gesture custom size -------------------------------------------
@@ -2000,6 +2119,92 @@ const BeautyPicker = {
 };
 // -------------------------------------------------------------------------
 
+// Whether a brand new capture (hand-gesture, Quick Shot, or Countdown
+// Shot) is allowed to start right now -- every modal that should block
+// one, plus the capture state machine already being mid-flight. Shared
+// by MobileCaptureControls so a tap can't sneak a second capture in
+// while one's already in progress or a modal is covering the buttons.
+function canStartNewCapture() {
+  return (
+    !HelpModal.isOpen &&
+    !RoundCompleteModal.isOpen &&
+    !PhotoPreview.isOpen &&
+    CaptureState.phase === "idle"
+  );
+}
+
+// Two extra buttons, visible only on touch-primary devices (see
+// MobileDetect), alongside -- not instead of -- the two-hand pinch
+// gesture; both work at the same time. Both reuse the exact same capture
+// state machine the hand gesture drives, just entered by a tap instead of
+// a pinch-hold, using defaultCaptureRect() in place of a hand-formed one:
+// - Quick Shot skips the countdown entirely, capturing immediately and
+//   jumping straight into the existing "flash" phase (still gets the
+//   shutter-flash feedback, still hands off to PhotoPreview after).
+// - Countdown Shot calls the SAME startCountdown() the pinch-and-hold
+//   gesture calls, so the entire "countdown" phase (locked-rect styled
+//   preview, the 4-3-2-1 number, auto-capture at zero) is unmodified,
+//   shared code.
+// Whatever style/beauty-filter toggles are active applies to both, the
+// same way it already applies to hand-gesture capture -- capturePhoto()
+// itself doesn't know or care how its rect was decided.
+const MobileCaptureControls = {
+  containerEl: null,
+  quickBtn: null,
+  countdownBtn: null,
+
+  init() {
+    this.containerEl = document.getElementById("mobile-capture-controls");
+    this.quickBtn = document.getElementById("quick-shot-btn");
+    this.countdownBtn = document.getElementById("countdown-shot-btn");
+    this.quickBtn.addEventListener("click", () => this.triggerQuickShot());
+    this.countdownBtn.addEventListener("click", () => this.triggerCountdownShot());
+  },
+
+  _readyVideo() {
+    const video = Webcam.videoEl;
+    return video && video.readyState >= 2 && video.videoWidth ? video : null;
+  },
+
+  triggerQuickShot() {
+    if (!canStartNewCapture()) return;
+    const video = this._readyVideo();
+    if (!video) return;
+
+    const nowMs = performance.now();
+    const rect = defaultCaptureRect();
+    CaptureState.lockedRect = rect;
+    CaptureState.pendingPhoto = capturePhoto(video, video.videoWidth, video.videoHeight, rect.x, rect.y, rect.w, rect.h, nowMs);
+    CaptureState.phase = "flash";
+    CaptureState.flashStartMs = nowMs;
+  },
+
+  triggerCountdownShot() {
+    if (!canStartNewCapture()) return;
+    if (!this._readyVideo()) return;
+
+    const rect = defaultCaptureRect();
+    startCountdown(rect.x, rect.y, rect.w, rect.h, performance.now());
+  },
+
+  // Called every frame from mainLoop. Fully hidden (not just disabled)
+  // whenever any modal is open -- including RoundCompleteModal's own
+  // pickingSize gesture-drawing sub-state, which hides ITS overlay to
+  // reveal the live camera + its own cancel button, so these two rows
+  // would otherwise both be visible at once and can sit close enough to
+  // collide. Merely disabled (visible but greyed out) during an
+  // in-progress countdown/flash, so it's clear the app is mid-capture
+  // rather than the buttons having vanished.
+  update() {
+    const modalOpen = HelpModal.isOpen || RoundCompleteModal.isOpen || PhotoPreview.isOpen;
+    this.containerEl.hidden = modalOpen;
+    const enabled = !modalOpen && CaptureState.phase === "idle";
+    this.quickBtn.disabled = !enabled;
+    this.countdownBtn.disabled = !enabled;
+  },
+};
+// -------------------------------------------------------------------------
+
 function setStatus(elementId, label, state) {
   const el = document.getElementById(elementId);
   el.textContent = label;
@@ -2010,6 +2215,10 @@ function setStatus(elementId, label, state) {
 function mainLoop(nowMs) {
   Canvas.clear();
   grainFrameCounter++;
+
+  // Always kept in sync, regardless of which modal (if any) is open --
+  // see canStartNewCapture/MobileCaptureControls.update's own comment.
+  MobileCaptureControls.update();
 
   if (HelpModal.isOpen) {
     // Nothing to track/draw underneath the guide -- and pausing here
@@ -2123,6 +2332,18 @@ function mainLoop(nowMs) {
       FrameSmoothingState.points = null;
       CaptureState.pinchStartMs = null;
       StyleState.leftWasPinching = false;
+
+      // On mobile, with no hand-frame currently being formed, show a
+      // live styled preview inside the same centered square Quick Shot/
+      // Countdown Shot will actually capture -- so there's continuous
+      // visual feedback for the tap-to-capture flow too, not just the
+      // hand gesture. Reuses drawStyledFrame wholesale (style filter,
+      // frame outline, strip crop guide -- skipped automatically here
+      // since the rect is already square).
+      if (MobileDetect.isMobile) {
+        const rect = defaultCaptureRect();
+        drawStyledFrame(rect.x, rect.y, rect.w, rect.h, video, videoW, videoH);
+      }
     }
   } else if (CaptureState.phase === "countdown") {
     // Locked: geometry is frozen, but the video feed inside it stays
@@ -2159,6 +2380,7 @@ function mainLoop(nowMs) {
 }
 
 async function init() {
+  MobileDetect.init();
   Canvas.init();
   initGrain();
   preloadStyleOverlays();
@@ -2167,6 +2389,7 @@ async function init() {
   PhotoStrip.init();
   PatternPicker.init();
   BeautyPicker.init();
+  MobileCaptureControls.init();
   SizePicker.init();
   RoundCompleteModal.init();
   PhotoPreview.init();

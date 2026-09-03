@@ -537,6 +537,76 @@ html, body {
   cursor: not-allowed;
 }
 
+/* Mobile/tablet-only capture buttons -- hidden by default; the
+   .mobile-capture body class (set by MobileDetect) is what actually
+   shows this row, so it reacts live to resize/orientation change rather
+   than being fixed at page-load time. */
+#mobile-capture-controls {
+  display: none;
+  position: fixed;
+  /* High enough to clear #style-label + #on-screen-signature's own
+     bottom-anchored band (they're left-anchored/centered respectively,
+     not wide, but a horizontally-CENTERED row can still overlap them on
+     a narrow phone width where its bounding box spans past their x
+     range) -- measured/verified via getBoundingClientRect at 375px
+     width, not just eyeballed. */
+  bottom: 3.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  gap: 0.75rem;
+}
+
+body.mobile-capture #mobile-capture-controls {
+  display: flex;
+}
+
+/* The `hidden` attribute's UA-stylesheet `display: none` would otherwise
+   lose to the more specific rule just above (same pattern already hit
+   elsewhere in this file, e.g. .size-picker-row[hidden]) -- this is what
+   MobileCaptureControls.update() actually toggles while a modal is open. */
+body.mobile-capture #mobile-capture-controls[hidden] {
+  display: none;
+}
+
+.mobile-capture-btn {
+  padding: 0.75rem 1.25rem;
+  font-size: 0.95rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.mobile-capture-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Only shown as a fallback when the Web Share API path (mobile) isn't
+   available/didn't succeed -- see saveCanvasesAsPng in script.js. High
+   z-index since a save is often triggered from inside a modal that's
+   about to close, and the toast needs to stay visible through that. */
+#save-toast {
+  position: fixed;
+  bottom: 7.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 0.55rem 1rem;
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.92);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.8rem;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  max-width: min(320px, 80vw);
+  text-align: center;
+}
+
+#save-toast[hidden] {
+  display: none;
+}
+
 /* Photo preview + retake: full-screen, right after every capture. Reuses
    .modal-overlay's dark backdrop/centering, just stacked as a column
    instead of showing a card. */

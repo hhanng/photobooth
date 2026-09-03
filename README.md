@@ -83,6 +83,24 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   is what gets baked in, so you can keep cycling styles during the
   countdown if you change your mind), a shutter flash fires, and the
   frame unlocks — ready to pinch-and-hold again for the next shot.
+- **Mobile/tablet capture buttons** — on touch-primary devices (detected
+  via `pointer: coarse`, with a touch+narrow-viewport fallback — a
+  touch-capable laptop with a trackpad as its primary input doesn't
+  count), two extra buttons sit bottom-center: **📸 Quick Shot** captures
+  immediately with no countdown, using a centered square sized off
+  whichever viewport dimension is smaller (the same role a hand-formed
+  rectangle plays elsewhere); **⏱ Countdown Shot** runs the exact same
+  4-second countdown as the pinch gesture, using that same centered
+  square. Both work *alongside* the two-hand pinch gesture, not instead
+  of it — either method is available at any time, and both apply
+  whichever style and beauty-filter toggles are currently active, the
+  same way hand-gesture capture does (they share the literal same
+  `capturePhoto`/`startCountdown` code, not a parallel implementation).
+  When idle with no hand-frame being formed, that same centered square
+  shows a live styled preview too, so there's visual feedback for the
+  tap-to-capture flow before you even tap. The buttons grey out (but stay
+  visible) during an in-progress countdown/flash, and hide entirely
+  behind any open modal.
 - **Photo preview + retake** — every capture shows full-screen, on its own,
   for 4 seconds before it ever reaches the strip, with **Retake** and
   **Keep** buttons underneath. Letting the 4 seconds run out counts as an
@@ -141,6 +159,22 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   or distorted. Both Save Strip and Save All 4 can be used in the same
   round if you want both; **Done** is what actually clears the strip for
   the next round. No new capture can start while this window is open.
+- **Saving actually reaches Photos/gallery on mobile** — every save (the
+  custom-size single photo, Save Strip, and Save All 4) goes through one
+  shared function that, on a touch-primary device, tries the Web Share
+  API first: the browser's native share sheet, with a "Save Image" (or
+  equivalent) action that lands the file in the device's actual Photos/
+  gallery app — a plain `<a download>` click on mobile typically dumps it
+  in a generic Downloads/Files app almost nobody thinks to check. Save
+  All 4's four photos are shared as ONE combined `navigator.share()` call
+  (Web Share Level 2 supports multiple files at once) rather than four
+  separate share sheets popping up back to back. If sharing isn't
+  available, isn't supported for files, or fails for a reason other than
+  the user just closing the share sheet, it falls back to the same direct
+  download desktop always uses, with a brief "Saved to your downloads"
+  toast so it's clear where to look. Desktop is untouched either way —
+  it always goes straight to the direct download, same as before this
+  feature.
 - **Mobile / tablet layout** — the strip and pattern-picker sizing both
   originally scaled off `window.innerHeight` alone, which looks right on
   a wide/short desktop window but would blow the strip up past half the
