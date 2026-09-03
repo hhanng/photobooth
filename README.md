@@ -50,25 +50,26 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   interactive exactly like the strip-pattern swatches below them: click,
   or either hand's index fingertip dwelling on one for half a second, and
   selecting an already-active toggle again turns it off. Either, both, or
-  neither can be on; both apply to *every* detected face across the full
-  camera feed, entirely independent of the hand-formed capture rectangle
-  or which color style is active, live in the viewfinder and baked into
-  the actual saved photo.
-  - **Skin Smoother** layers a blurred, reduced-opacity copy of each
-    face's own region back on top of the sharp video, masked to the face
-    (minus the eyes, eyebrows, lips, and nostrils, which stay sharp) so
-    it reads as softened skin rather than an out-of-focus face. The mask
-    is built from a small set of well-established `FaceLandmarker`
-    anchor points (face-edge, eye-corner, mouth-corner landmarks used
-    ubiquitously across face-mesh tooling) as rotated ellipses — robust
-    to head tilt — combined into one `Path2D` and clipped with the
-    `evenodd` fill rule, so the exclusion zones punch cleanly out of the
-    face region in a single clip call.
-  - **Blush** draws a soft, strong pink-red radial gradient on both
-    cheeks of every detected face — dense color at the center fading to
-    fully transparent at the edge — positioned from a geometric blend of
-    eye-corner, mouth-corner, and face-edge landmarks rather than a
-    single less-certain "cheek" index.
+  neither can be on; live in the viewfinder and baked into the actual
+  saved photo.
+  - **Skin Smoother** is a plain, gentle whole-frame soft-focus pass —
+    not masked to face regions at all. A blurred copy of the entire
+    camera view is blended back over the sharp one at low opacity
+    (5px blur, 25% opacity), independent of face detection or the
+    hand-formed capture rectangle. A precise face mask reads as an
+    obvious "filter edge" the moment it's even slightly off; a gentle,
+    edge-less blur over everything doesn't have an edge to notice, and
+    skin is what visibly benefits from a small blur anyway.
+  - **Blush** draws a soft pink-red radial gradient on the upper cheeks
+    of every detected face — a many-stop gradient approximating a
+    gaussian falloff (no hard edge, fully transparent past the outer
+    radius) blended with the canvas `soft-light` composite mode rather
+    than plain alpha-over, so it reads as tinting the skin (picks up the
+    underlying tone/shading) instead of a flat sticker sitting on top of
+    it. Cheek position is a geometric blend of eye-corner, mouth-corner,
+    and face-edge landmarks (rather than a single less-certain "cheek"
+    index), weighted toward eye height for a natural upper-cheek
+    placement.
 - **Capture** — pinch your RIGHT hand's thumb and index tip together and
   *hold* the pinch for a full second (a small progress ring appears at the
   pinch point so you can see it registering) to lock the frame in place

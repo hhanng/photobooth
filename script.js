@@ -901,7 +901,7 @@ function capturePhoto(video, videoW, videoH, rectX, rectY, rectW, rectH, nowMs) 
   // they're currently toggled on, using whichever faces were detected in
   // this same video frame, remapped from full-video-space into this
   // crop's own local pixel space.
-  drawFaceEffectsOnCapture(pctx, video, videoW, videoH, srcX, srcY, srcW, srcH, outW, outH, nowMs);
+  drawFaceEffectsOnCapture(pctx, video, style, videoW, videoH, srcX, srcY, srcW, srcH, outW, outH, nowMs);
 
   const photo = {
     canvas: photoCanvas,
@@ -1764,60 +1764,103 @@ const PatternPicker = {
 // -------------------------------------------------------------------------
 
 // --- Face beauty filters (skin smoother + blush) --------------------------
-// Two independent on/off toggles, each applying to every detected face
-// across the FULL camera feed -- not clipped to the hand-formed capture
-// rectangle the way the color styles are. Both live in the viewfinder and
-// get baked into the actual saved photo.
-//
-// Masking is built from a small set of well-established, stable
-// FaceLandmarker anchor points (face-edge/eye-corner/mouth-corner
-// landmarks used ubiquitously across MediaPipe face-mesh tooling) rather
-// than the library's full ~40-point eye/lip/face-oval contour polygons --
-// those are precise but easy to get subtly wrong transcribing indices
-// from memory, and would still need this same kind of padding/approximation
-// to look natural once blurred anyway. Approximate rotated ellipses
-// anchored to real facial geometry (robust to head tilt) are a safer,
-// still-convincing trade for real-time canvas masking.
-const FACE_LM = {
-  FOREHEAD_TOP: 10,
-  CHIN: 152,
-  LEFT_FACE_EDGE: 234,
-  RIGHT_FACE_EDGE: 454,
-  NOSE_TIP: 1,
-  LEFT_EYE_OUTER: 33,
-  LEFT_EYE_INNER: 133,
-  LEFT_EYE_TOP: 159,
-  LEFT_EYE_BOTTOM: 145,
-  RIGHT_EYE_INNER: 362,
-  RIGHT_EYE_OUTER: 263,
-  RIGHT_EYE_TOP: 386,
-  RIGHT_EYE_BOTTOM: 374,
-  MOUTH_LEFT: 61,
-  MOUTH_RIGHT: 291,
-  MOUTH_TOP: 13,
-  MOUTH_BOTTOM: 14,
-};
-
+// Two independent on/off toggles. Both live in the viewfinder and get
+// baked into the actual saved photo.
 const SkinSmootherState = { enabled: false };
 const BlushState = { enabled: false };
 
-// Skin smoother tuning.
-const FACE_SMOOTH_BLUR_PX = 8;
-const FACE_SMOOTH_ALPHA = 0.5;
-const FACE_MASK_PAD_X = 1.15; // face ellipse a bit wider than the raw landmark extents
-const FACE_MASK_PAD_Y = 1.12;
-const EYE_EXCLUDE_RX_FACTOR = 1.7; // widened past the raw eye-corner span to also clear lashes/brow-inner
-const EYE_EXCLUDE_RY_FACTOR = 2.4; // tall enough to reach up into the eyebrow, not just the eyelid
-const EYE_EXCLUDE_UP_SHIFT = 0.3; // fraction of ry the ellipse center is nudged upward, biasing coverage toward the brow
-const MOUTH_EXCLUDE_RX_FACTOR = 1.3;
-const MOUTH_EXCLUDE_RY_MIN_FACTOR = 0.5; // relative to rx, guards a nearly-closed mouth from collapsing to a sliver
-const NOSE_EXCLUDE_RADIUS_RATIO = 0.1; // relative to face width -- approximates the nostril area around the nose tip
+// --- Skin smoother: gentle whole-frame blur -------------------------------
+// A plain soft-focus pass over the ENTIRE frame -- not masked to face
+// regions at all. Blends a blurred copy of the whole camera view back
+// over the sharp one at low opacity. Deliberately simple: a mask that's
+// even slightly too tight or too loose reads as an obvious "filter edge"
+// once you're looking for it, where a gentle blur with no edge to notice
+// doesn't -- and skin is what visibly benefits from a small blur anyway,
+// so eyes/hair/edges just end up a touch softer too, same as a real
+// soft-focus lens, rather than needing to be precisely excluded.
+const SKIN_SMOOTH_BLUR_PX = 5;
+const SKIN_SMOOTH_ALPHA = 0.25;
 
-// Blush tuning -- deliberately strong/saturated per spec, not a subtle hint.
-const BLUSH_RADIUS_RATIO = 0.13; // relative to face width
-const BLUSH_COLOR_INNER = "rgba(255, 45, 100, 0.6)";
-const BLUSH_COLOR_MID = "rgba(255, 45, 100, 0.32)";
-const BLUSH_COLOR_OUTER = "rgba(255, 45, 100, 0)";
+// CSS filter strings can't just be concatenated with "blur(...)" when the
+// base is the literal keyword "none" -- "none blur(5px)" is invalid and
+// the whole assignment gets silently ignored by the canvas context, not
+// just the "none" part. Swap it out for a bare blur in that case.
+function withBlur(filterString, blurPx) {
+  const base = filterString === "none" ? "" : `${filterString} `;
+  return `${base}blur(${blurPx}px)`;
+}
+
+// Live-preview pass: the entire mirrored, cover-fit video (the same
+// positioning math the background <video> element itself already uses)
+// redrawn blurred and at low opacity over everything drawn so far this
+// frame. Not composed with the active style's filter -- this covers the
+// WHOLE canvas, including video outside any hand-formed rectangle, which
+// stays full-color/unstyled by design (same as the plain background).
+function drawSkinSmootherLive(video, videoW, videoH) {
+  const ctx = Canvas.ctx;
+  const scale = Math.max(Canvas.width / videoW, Canvas.height / videoH);
+  const dispW = videoW * scale;
+  const dispH = videoH * scale;
+  const offsetX = (Canvas.width - dispW) / 2;
+  const offsetY = (Canvas.height - dispH) / 2;
+
+  ctx.save();
+  ctx.translate(Canvas.width, 0);
+  ctx.scale(-1, 1);
+  ctx.filter = `blur(${SKIN_SMOOTH_BLUR_PX}px)`;
+  ctx.globalAlpha = SKIN_SMOOTH_ALPHA;
+  ctx.drawImage(video, 0, 0, videoW, videoH, offsetX, offsetY, dispW, dispH);
+  ctx.restore();
+}
+
+// Capture-bake version of the same idea, scoped to this photo's own crop
+// (srcX/Y/W/H -> destW/destH, the same mirrored-crop recipe capturePhoto's
+// sharp draw uses). Unlike the live version, this DOES compose with the
+// active style's filter -- the whole captured photo IS the styled crop,
+// there's no "outside the frame" region left unstyled the way the live
+// canvas has.
+function drawSkinSmootherCapture(ctx, video, style, srcX, srcY, srcW, srcH, destW, destH) {
+  ctx.save();
+  ctx.translate(destW, 0);
+  ctx.scale(-1, 1);
+  ctx.filter = withBlur(style.filter, SKIN_SMOOTH_BLUR_PX);
+  ctx.globalAlpha = SKIN_SMOOTH_ALPHA;
+  ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, destW, destH);
+  ctx.restore();
+}
+// -------------------------------------------------------------------------
+
+// --- Blush: soft radial tint on each detected face's cheeks ---------------
+// Built from a small set of well-established, stable FaceLandmarker
+// anchor points (face-edge/eye-corner/mouth-corner landmarks used
+// ubiquitously across MediaPipe face-mesh tooling), rather than a single
+// less-certain "cheek" index -- see blendCheekPoint.
+const FACE_LM = {
+  LEFT_FACE_EDGE: 234,
+  RIGHT_FACE_EDGE: 454,
+  LEFT_EYE_OUTER: 33,
+  RIGHT_EYE_OUTER: 263,
+  MOUTH_LEFT: 61,
+  MOUTH_RIGHT: 291,
+};
+
+// A many-stop gradient approximating a soft gaussian falloff (not a flat
+// disc with a hard edge) at a moderate peak alpha, then blended with
+// "soft-light" -- not plain alpha-over -- so it reads as tinting the skin
+// (picks up the underlying tone/shading) rather than a flat sticker sitting
+// on top of it. "multiply" is the other natural choice here if soft-light
+// ever reads too faint on a given skin tone/lighting -- worth trying if
+// this needs retuning.
+const BLUSH_RADIUS_RATIO = 0.1; // relative to face width -- a touch smaller than the first version
+const BLUSH_COLOR_RGB = "255, 45, 100";
+const BLUSH_STOPS = [
+  [0, 0.55],
+  [0.25, 0.45],
+  [0.5, 0.28],
+  [0.75, 0.12],
+  [1, 0],
+];
+const BLUSH_BLEND_MODE = "soft-light";
 
 function dist(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -1831,145 +1874,43 @@ function computeFacePoints(landmarks, mapPoint) {
   const L = FACE_LM;
   const pt = (i) => mapPoint(landmarks[i].x, landmarks[i].y);
   return {
-    foreheadTop: pt(L.FOREHEAD_TOP),
-    chin: pt(L.CHIN),
     leftEdge: pt(L.LEFT_FACE_EDGE),
     rightEdge: pt(L.RIGHT_FACE_EDGE),
-    noseTip: pt(L.NOSE_TIP),
     leftEyeOuter: pt(L.LEFT_EYE_OUTER),
-    leftEyeInner: pt(L.LEFT_EYE_INNER),
-    leftEyeTop: pt(L.LEFT_EYE_TOP),
-    leftEyeBottom: pt(L.LEFT_EYE_BOTTOM),
-    rightEyeInner: pt(L.RIGHT_EYE_INNER),
     rightEyeOuter: pt(L.RIGHT_EYE_OUTER),
-    rightEyeTop: pt(L.RIGHT_EYE_TOP),
-    rightEyeBottom: pt(L.RIGHT_EYE_BOTTOM),
     mouthLeft: pt(L.MOUTH_LEFT),
     mouthRight: pt(L.MOUTH_RIGHT),
-    mouthTop: pt(L.MOUTH_TOP),
-    mouthBottom: pt(L.MOUTH_BOTTOM),
   };
 }
 
-// Overall face size/position/tilt, derived from the already-mapped anchor
-// points above -- used to size and rotate every mask ellipse consistently.
 function computeFaceGeometry(p) {
   return {
-    centerX: (p.leftEdge.x + p.rightEdge.x + p.foreheadTop.x + p.chin.x) / 4,
-    centerY: (p.leftEdge.y + p.rightEdge.y + p.foreheadTop.y + p.chin.y) / 4,
     faceWidth: dist(p.leftEdge, p.rightEdge),
-    faceHeight: dist(p.foreheadTop, p.chin),
-    // The eye line (outer corner to outer corner) tracks in-plane head
-    // roll more reliably than the face-edge points, which shift with jaw
-    // movement.
-    angle: Math.atan2(p.rightEyeOuter.y - p.leftEyeOuter.y, p.rightEyeOuter.x - p.leftEyeOuter.x),
-    // A natural cheek "apple" position, derived (not a single raw
-    // landmark) from three high-confidence anchors: mostly toward the
-    // face edge and eye height horizontally/vertically, pulled down some
-    // toward the mouth corner -- avoids depending on any one less-certain
-    // "cheek" index.
     leftCheek: blendCheekPoint(p.leftEyeOuter, p.mouthLeft, p.leftEdge),
     rightCheek: blendCheekPoint(p.rightEyeOuter, p.mouthRight, p.rightEdge),
   };
 }
 
+// A natural cheek "apple" position, derived (not a single raw landmark)
+// from three high-confidence anchors: mostly under/around the eye's
+// outer corner -- roughly cheekbone height, natural blush placement --
+// with a little pull toward the face edge and only a small downward
+// nudge from the mouth corner.
 function blendCheekPoint(eyeOuter, mouthCorner, faceEdge) {
   return {
-    x: eyeOuter.x * 0.4 + faceEdge.x * 0.35 + mouthCorner.x * 0.25,
-    y: eyeOuter.y * 0.35 + mouthCorner.y * 0.65,
+    x: eyeOuter.x * 0.5 + faceEdge.x * 0.3 + mouthCorner.x * 0.2,
+    y: eyeOuter.y * 0.6 + mouthCorner.y * 0.4,
   };
-}
-
-function addExclusionEllipse(path, cx, cy, rx, ry, angle) {
-  path.ellipse(cx, cy, Math.max(1, rx), Math.max(1, ry), angle, 0, Math.PI * 2);
-}
-
-function addEyeExclusion(path, outer, inner, top, bottom, angle) {
-  const cx = (outer.x + inner.x) / 2;
-  const cy = (outer.y + inner.y) / 2;
-  const rx = (dist(outer, inner) / 2) * EYE_EXCLUDE_RX_FACTOR;
-  const ry = Math.max(dist(top, bottom), rx * 0.4) * EYE_EXCLUDE_RY_FACTOR * 0.5;
-  addExclusionEllipse(path, cx, cy - ry * EYE_EXCLUDE_UP_SHIFT, rx, ry, angle);
-}
-
-// One combined Path2D: the outer face ellipse, plus every exclusion
-// ellipse (eyes/brows, mouth, nose) as additional overlapping subpaths --
-// clipped with the "evenodd" fill rule, so a point inside an ODD number
-// of overlapping shapes counts as inside the clip (just the face ellipse)
-// and an EVEN number (face ellipse + one exclusion) counts as outside.
-// That punches the exclusion zones out of the face region in one clip
-// call, no separate mask canvas/compositing pass needed.
-function buildFaceSmootherClipPath(p, geo) {
-  const path = new Path2D();
-
-  addExclusionEllipse(
-    path,
-    geo.centerX,
-    geo.centerY,
-    (geo.faceWidth / 2) * FACE_MASK_PAD_X,
-    (geo.faceHeight / 2) * FACE_MASK_PAD_Y,
-    geo.angle
-  );
-
-  addEyeExclusion(path, p.leftEyeOuter, p.leftEyeInner, p.leftEyeTop, p.leftEyeBottom, geo.angle);
-  addEyeExclusion(path, p.rightEyeInner, p.rightEyeOuter, p.rightEyeTop, p.rightEyeBottom, geo.angle);
-
-  const mouthCx = (p.mouthLeft.x + p.mouthRight.x) / 2;
-  const mouthCy = (p.mouthTop.y + p.mouthBottom.y) / 2;
-  const mouthRx = (dist(p.mouthLeft, p.mouthRight) / 2) * MOUTH_EXCLUDE_RX_FACTOR;
-  const mouthRy = Math.max(dist(p.mouthTop, p.mouthBottom) * 1.3, mouthRx * MOUTH_EXCLUDE_RY_MIN_FACTOR);
-  addExclusionEllipse(path, mouthCx, mouthCy, mouthRx, mouthRy, geo.angle);
-
-  const noseR = geo.faceWidth * NOSE_EXCLUDE_RADIUS_RATIO;
-  addExclusionEllipse(path, p.noseTip.x, p.noseTip.y, noseR, noseR * 0.75, geo.angle);
-
-  return path;
-}
-
-// Draws one blurred, reduced-opacity copy of this face's own region on
-// top of the sharp video already underneath, clipped to the face-minus-
-// features mask above -- shared by the live preview and the capture bake;
-// `mapDestToVideo(x, y)` is the one thing that differs between them (a
-// closure returning the matching RAW VIDEO PIXEL coordinates for a given
-// point in whichever destination space `geo`/`p` were computed in), same
-// two-context sharing trick as computeFacePoints's `mapPoint`.
-function drawFaceSkinSmoother(ctx, video, geo, clipPath, mapDestToVideo) {
-  const halfW = (geo.faceWidth / 2) * FACE_MASK_PAD_X + FACE_SMOOTH_BLUR_PX * 2;
-  const halfH = (geo.faceHeight / 2) * FACE_MASK_PAD_Y + FACE_SMOOTH_BLUR_PX * 2;
-  const destX = geo.centerX - halfW;
-  const destY = geo.centerY - halfH;
-  const destW = halfW * 2;
-  const destH = halfH * 2;
-
-  const c1 = mapDestToVideo(destX, destY);
-  const c2 = mapDestToVideo(destX + destW, destY + destH);
-  const srcX = Math.min(c1.x, c2.x);
-  const srcY = Math.min(c1.y, c2.y);
-  const srcW = Math.max(1, Math.abs(c2.x - c1.x));
-  const srcH = Math.max(1, Math.abs(c2.y - c1.y));
-
-  ctx.save();
-  ctx.clip(clipPath, "evenodd");
-  // Same mirrored-crop recipe as drawStyledFrame/capturePhoto: mirror
-  // scoped to just this draw, source rect found via the inverse mapper,
-  // drawn stretched to fill the local (already-mirrored-space) dest box.
-  ctx.translate(destX + destW, destY);
-  ctx.scale(-1, 1);
-  ctx.filter = `blur(${FACE_SMOOTH_BLUR_PX}px)`;
-  ctx.globalAlpha = FACE_SMOOTH_ALPHA;
-  ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, destW, destH);
-  ctx.restore();
 }
 
 function drawBlushCheek(ctx, center, r) {
   const gradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, r);
-  gradient.addColorStop(0, BLUSH_COLOR_INNER);
-  gradient.addColorStop(0.6, BLUSH_COLOR_MID);
-  gradient.addColorStop(1, BLUSH_COLOR_OUTER);
+  for (const [stop, alpha] of BLUSH_STOPS) {
+    gradient.addColorStop(stop, `rgba(${BLUSH_COLOR_RGB}, ${alpha})`);
+  }
   ctx.save();
   ctx.filter = "none";
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = "source-over";
+  ctx.globalCompositeOperation = BLUSH_BLEND_MODE;
   ctx.fillStyle = gradient;
   ctx.beginPath();
   ctx.arc(center.x, center.y, r, 0, Math.PI * 2);
@@ -1982,23 +1923,22 @@ function drawFaceBlush(ctx, geo) {
   drawBlushCheek(ctx, geo.leftCheek, r);
   drawBlushCheek(ctx, geo.rightCheek, r);
 }
+// -------------------------------------------------------------------------
 
-// Live-preview pass: every detected face, full canvas, independent of any
-// hand-frame rectangle or CaptureState.phase -- called unconditionally
-// from mainLoop each frame, same as PatternPicker.updateDwell.
+// --- Combined per-frame / per-capture passes -------------------------------
+// Live-preview pass: skin smoother (whole frame, no face detection
+// needed at all) plus blush (per detected face) -- independent of any
+// hand-frame rectangle or CaptureState.phase, called unconditionally from
+// mainLoop each frame, same as PatternPicker.updateDwell.
 function drawFaceEffects(video, videoW, videoH, faces) {
-  if (!SkinSmootherState.enabled && !BlushState.enabled) return;
+  if (SkinSmootherState.enabled) drawSkinSmootherLive(video, videoW, videoH);
+  if (!BlushState.enabled) return;
+
   const ctx = Canvas.ctx;
   const mapPoint = (nx, ny) => mapVideoToCanvas(nx, ny, videoW, videoH, Canvas.width, Canvas.height);
-  const mapDestToVideo = (x, y) => mapCanvasToVideo(x, y, videoW, videoH, Canvas.width, Canvas.height);
-
   for (const face of faces) {
-    const p = computeFacePoints(face.landmarks, mapPoint);
-    const geo = computeFaceGeometry(p);
-    if (SkinSmootherState.enabled) {
-      drawFaceSkinSmoother(ctx, video, geo, buildFaceSmootherClipPath(p, geo), mapDestToVideo);
-    }
-    if (BlushState.enabled) drawFaceBlush(ctx, geo);
+    const geo = computeFaceGeometry(computeFacePoints(face.landmarks, mapPoint));
+    drawFaceBlush(ctx, geo);
   }
 }
 
@@ -2008,6 +1948,8 @@ function drawFaceEffects(video, videoW, videoH, faces) {
 // *whole* video is cover-fit onto a full-size canvas): here a specific
 // video-space sub-rectangle (srcX/Y/W/H) is stretched directly to fill
 // destW/destH, then mirrored, matching capturePhoto's own draw exactly.
+// Only blush needs this now -- the capture smoother works straight off
+// srcX/Y/W/H, no per-face remapping.
 function mapVideoPointToCroppedCanvas(nx, ny, videoW, videoH, srcX, srcY, srcW, srcH, destW, destH) {
   const videoPxX = nx * videoW;
   const videoPxY = ny * videoH;
@@ -2016,36 +1958,21 @@ function mapVideoPointToCroppedCanvas(nx, ny, videoW, videoH, srcX, srcY, srcW, 
   return { x: (1 - u) * destW, y: v * destH };
 }
 
-// The inverse of the above: a point in that same final/mirrored cropped-
-// canvas space back to raw video PIXEL coordinates (matching
-// mapCanvasToVideo's own return convention) -- srcX/Y/W/H already are
-// raw-video-pixel-space, so this is just the mirror-and-rescale step.
-function mapCroppedCanvasPointToVideo(x, y, srcX, srcY, srcW, srcH, destW, destH) {
-  const u = 1 - x / destW;
-  const v = y / destH;
-  return { x: srcX + u * srcW, y: srcY + v * srcH };
-}
-
 // Capture-bake pass: draws whichever face effects are currently toggled
-// on on top of an already-drawn, already-restored sharp photoCanvas --
-// reuses every geometry/masking function above unchanged, just with the
-// crop-specific point mappers instead of the live-preview's full-canvas
-// ones, so a captured photo always matches what was just previewed.
-function drawFaceEffectsOnCapture(pctx, video, videoW, videoH, srcX, srcY, srcW, srcH, destW, destH, nowMs) {
-  if (!SkinSmootherState.enabled && !BlushState.enabled) return;
+// on, on top of an already-drawn, already-restored sharp photoCanvas.
+function drawFaceEffectsOnCapture(pctx, video, style, videoW, videoH, srcX, srcY, srcW, srcH, destW, destH, nowMs) {
+  if (SkinSmootherState.enabled) {
+    drawSkinSmootherCapture(pctx, video, style, srcX, srcY, srcW, srcH, destW, destH);
+  }
+  if (!BlushState.enabled) return;
+
   const faces = FaceTracker.detect(video, nowMs);
   if (faces.length === 0) return;
 
   const mapPoint = (nx, ny) => mapVideoPointToCroppedCanvas(nx, ny, videoW, videoH, srcX, srcY, srcW, srcH, destW, destH);
-  const mapDestToVideo = (x, y) => mapCroppedCanvasPointToVideo(x, y, srcX, srcY, srcW, srcH, destW, destH);
-
   for (const face of faces) {
-    const p = computeFacePoints(face.landmarks, mapPoint);
-    const geo = computeFaceGeometry(p);
-    if (SkinSmootherState.enabled) {
-      drawFaceSkinSmoother(pctx, video, geo, buildFaceSmootherClipPath(p, geo), mapDestToVideo);
-    }
-    if (BlushState.enabled) drawFaceBlush(pctx, geo);
+    const geo = computeFaceGeometry(computeFacePoints(face.landmarks, mapPoint));
+    drawFaceBlush(pctx, geo);
   }
 }
 // -------------------------------------------------------------------------
@@ -2400,3 +2327,4 @@ async function init() {
 }
 
 init();
+
