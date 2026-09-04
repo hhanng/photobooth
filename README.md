@@ -1,5 +1,7 @@
 # photobooth
 
+[![CI](https://github.com/hhanng/photobooth/actions/workflows/ci.yml/badge.svg)](https://github.com/hhanng/photobooth/actions/workflows/ci.yml)
+
 A webcam photobooth controlled entirely by hand gestures. Hold both hands
 up in a "director's frame" — thumb and index finger tips on each hand
 sketching out a rectangle — and a glowing viewfinder frame appears live on
