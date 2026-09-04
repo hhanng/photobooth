@@ -1934,12 +1934,13 @@ function computeFaceGeometry(p) {
 // A natural cheek "apple" position, derived (not a single raw landmark)
 // from three high-confidence anchors: mostly under/around the eye's
 // outer corner -- roughly cheekbone height, natural blush placement --
-// with a little pull toward the face edge and only a small downward
-// nudge from the mouth corner.
+// with a little pull toward the face edge and a slightly bigger downward
+// nudge from the mouth corner (nudged down a little further from an
+// even higher eye-weighted version per feedback that it sat too high).
 function blendCheekPoint(eyeOuter, mouthCorner, faceEdge) {
   return {
     x: eyeOuter.x * 0.5 + faceEdge.x * 0.3 + mouthCorner.x * 0.2,
-    y: eyeOuter.y * 0.6 + mouthCorner.y * 0.4,
+    y: eyeOuter.y * 0.5 + mouthCorner.y * 0.5,
   };
 }
 
