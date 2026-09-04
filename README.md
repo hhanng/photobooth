@@ -87,8 +87,15 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
     reads as tinting the skin rather than a flat sticker sitting on top
     of it. Cheek position is a geometric blend of eye-corner,
     mouth-corner, and face-edge landmarks (rather than a single
-    less-certain "cheek" index), weighted toward eye height for a
-    natural upper-cheek placement.
+    less-certain "cheek" index), weighted mostly toward mouth-corner
+    height so it sits on the actual cheek rather than up near the eyes.
+    Only renders under the "No Filter" style — a warm pink tint either
+    gets stripped right back out by a desaturating style (Vintage B&W,
+    Sepia, Star Scrapbook) or clashes with its own color grading, so
+    Blush is skipped entirely (live preview and the baked photo alike)
+    whenever any other style is selected, even if the toggle itself is
+    still on; switching back to "No Filter" brings it right back with no
+    need to re-toggle.
 - **Capture** — pinch your RIGHT hand's thumb and index tip together and
   *hold* the pinch for a full second (a small progress ring appears at the
   pinch point so you can see it registering) to lock the frame in place

@@ -1932,15 +1932,14 @@ function computeFaceGeometry(p) {
 }
 
 // A natural cheek "apple" position, derived (not a single raw landmark)
-// from three high-confidence anchors: mostly under/around the eye's
-// outer corner -- roughly cheekbone height, natural blush placement --
-// with a little pull toward the face edge and a slightly bigger downward
-// nudge from the mouth corner (nudged down a little further from an
-// even higher eye-weighted version per feedback that it sat too high).
+// from three high-confidence anchors, weighted mostly toward mouth-corner
+// height with the eye-outer corner mainly pulling it up off the jawline --
+// moved down twice from an initial eye-weighted version after feedback
+// that it sat too high, up into the eye area on a real face.
 function blendCheekPoint(eyeOuter, mouthCorner, faceEdge) {
   return {
     x: eyeOuter.x * 0.5 + faceEdge.x * 0.3 + mouthCorner.x * 0.2,
-    y: eyeOuter.y * 0.5 + mouthCorner.y * 0.5,
+    y: eyeOuter.y * 0.3 + mouthCorner.y * 0.7,
   };
 }
 
@@ -1997,7 +1996,11 @@ function drawFaceBlush(ctx, geo) {
 // mainLoop each frame, same as PatternPicker.updateDwell.
 function drawFaceEffects(video, videoW, videoH, faces) {
   if (SkinSmootherState.enabled) drawSkinSmootherLive(video, videoW, videoH);
-  if (!BlushState.enabled) return;
+  // Blush is a warm pink tint -- it only reads as "blush" on the true
+  // color feed. Under a desaturating/tinting style (Vintage B&W, Sepia,
+  // Star Scrapbook) it either gets stripped right back out or clashes
+  // with the style's own color grading, so it's limited to "No Filter".
+  if (!BlushState.enabled || STYLES[StyleState.index].filter !== "none") return;
 
   const ctx = Canvas.ctx;
   const mapPoint = (nx, ny) => mapVideoToCanvas(nx, ny, videoW, videoH, Canvas.width, Canvas.height);
@@ -2029,7 +2032,9 @@ function drawFaceEffectsOnCapture(pctx, video, style, videoW, videoH, srcX, srcY
   if (SkinSmootherState.enabled) {
     drawSkinSmootherCapture(pctx, video, style, srcX, srcY, srcW, srcH, destW, destH);
   }
-  if (!BlushState.enabled) return;
+  // Same "No Filter" gate as the live preview (drawFaceEffects) -- keeps
+  // the baked photo consistent with what was actually shown on screen.
+  if (!BlushState.enabled || style.filter !== "none") return;
 
   const faces = FaceTracker.detect(video, nowMs);
   if (faces.length === 0) return;
