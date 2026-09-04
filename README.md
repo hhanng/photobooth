@@ -61,29 +61,34 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
     obvious "filter edge" the moment it's even slightly off; a gentle,
     edge-less blur over everything doesn't have an edge to notice, and
     skin is what visibly benefits from a small blur anyway.
-  - **Blush** paints a wide, flat, warm coral-pink SWEEP across the upper
-    cheeks of every detected face — like a diffused brush stroke from
-    under the eye out toward the ear, angled to follow the eye-to-face-
-    edge line — rather than a round dot, which reads as "drawn on"
-    almost no matter how soft its edge is. Rendered by stretching a
-    small pre-blurred circular texture into an ellipse: a real gaussian
-    blur pass, rendered once into its own small offscreen canvas and
-    cached, gives a genuinely soft photographic diffusion no number of
-    gradient color-stops alone can quite fake, and every actual draw
-    after that is just one cheap `drawImage` call. The texture's own
-    blur is deliberately large relative to its solid "core" circle —
-    most of the shape is diffusion, not flat color — with a bigger core
-    than that alone would suggest so the peak still reads as visible
-    rather than just a haze. Blended with the canvas `multiply`
+  - **Blush** paints a soft, diffused warm coral-pink glow across the
+    upper cheeks of every detected face — a wide, flat SWEEP shape (like
+    a brush stroke from under the eye out toward the ear, angled to
+    follow the eye-to-face-edge line) rather than a round dot, but with
+    no gradient and no visible edge at all: what's actually drawn is a
+    plain SOLID ellipse on a small offscreen scratch canvas, then a real
+    `ctx.filter = blur(...)` pass (not faked with gradient color-stops)
+    blurs that layer before it's composited onto the face, already-
+    blurred, with one `drawImage` call. A gradient — even a blurred one —
+    still has a defined center where the color stops changing, which the
+    eye picks up as an edge; blurring a flat solid fill by a radius on
+    the same order as the shape itself leaves no such plateau, closer to
+    a point of light diffused into a glow than a shape with a soft rim.
+    Both the solid ellipse's size and the blur radius scale with the
+    detected face's own width, so it holds together at any distance from
+    the camera — computed fresh per face/per frame rather than cached as
+    a fixed-size texture (the scratch canvas itself *is* reused and only
+    grown, never recreated, to avoid per-frame allocation churn). Peak
+    opacity is tuned lower than a sharp shape would need, since a
+    blurred, diffused fill reads as more intense/spread out than the
+    same alpha does on a crisp edge. Blended with the canvas `multiply`
     composite mode (tried `soft-light` first — more "natural" in theory,
     but measured/looked too faint against real skin-tone values) so it
     reads as tinting the skin rather than a flat sticker sitting on top
-    of it, while keeping the same soft falloff the blur/gradient already
-    bake in (canvas compositing still respects per-pixel alpha under any
-    blend mode). Cheek position is a geometric
-    blend of eye-corner, mouth-corner, and face-edge landmarks (rather
-    than a single less-certain "cheek" index), weighted toward eye
-    height for a natural upper-cheek placement.
+    of it. Cheek position is a geometric blend of eye-corner,
+    mouth-corner, and face-edge landmarks (rather than a single
+    less-certain "cheek" index), weighted toward eye height for a
+    natural upper-cheek placement.
 - **Capture** — pinch your RIGHT hand's thumb and index tip together and
   *hold* the pinch for a full second (a small progress ring appears at the
   pinch point so you can see it registering) to lock the frame in place

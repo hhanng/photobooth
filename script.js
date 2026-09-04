@@ -1847,81 +1847,56 @@ const FACE_LM = {
 
 // Shape: a wide, flat, horizontal SWEEP (like a diffused brush stroke
 // from under the eye out toward the ear) rather than a round dot -- a
-// round blob reads as "drawn on" almost no matter how soft its edge is;
-// the elongated, angled sweep is what actually reads as blush. Rendered
-// by stretching a small pre-blurred circular texture (see
-// getBlushTexture) into an ellipse via drawImage, rather than filling an
-// elliptical path with a plain gradient -- a REAL blur pass (rendered
-// once, in its own undistorted pixel space, then cached) gives a soft,
-// photographic diffusion no number of gradient color-stops can quite
-// fake, and caching it means every actual draw is just one cheap
-// drawImage call.
-const BLUSH_RX_RATIO = 0.28; // horizontal half-width, relative to face width -- widened from the first sweep version
-const BLUSH_RY_RATIO = 0.1; // vertical half-height -- flat and wide, not round
+// round blob reads as "drawn on" almost no matter how soft its edge is.
+// The actual "shape" drawn is a plain SOLID ellipse -- no gradient at
+// all -- with a strong real blur pass doing 100% of the falloff work
+// (see drawBlushCheek). A gradient (even a blurred one) still has a
+// defined center where color stops changing, which the eye can pick up
+// as an edge; a solid fill blurred by a radius on the same order as the
+// shape itself has no such plateau -- it's soft diffusion all the way
+// through, closer to a point of light blurred into a glow than a shape
+// with a soft rim. (An even smaller core blurred by a much larger
+// radius reads as *more* edgeless still, but was tuned back up from
+// there -- past a point it dilutes the peak alpha so much the result is
+// barely visible at all, even compensating with higher opacity.) Both
+// the core size and the blur radius scale with face size so it holds
+// together at any distance from the camera.
+const BLUSH_CORE_RX_RATIO = 0.16; // solid-ellipse half-width before blur, relative to face width -- small on purpose
+const BLUSH_CORE_RY_RATIO = 0.07; // half-height -- flat and wide, not round
+const BLUSH_BLUR_RATIO = 0.1; // blur radius, relative to face width -- comparable to the core, so blur (not the shape) defines how it reads
 const BLUSH_COLOR_RGB = "255, 120, 120"; // warm coral-pink, closer to a natural flush than a cool magenta
-// Peak alpha here reads noticeably weaker than these numbers by the time
-// it's on screen -- the blur below (bigger than the circle it's blurring)
-// dilutes the center by averaging in the fully-transparent area just past
-// the circle's edge, which is deliberate (that's what makes the falloff
-// actually soft) but has to be compensated for with higher stops than a
-// crisp, unblurred gradient would need. More stops than strictly needed
-// for the shape -- a smoother, more continuous-reading falloff (less
-// banding) is a real part of what makes it look blended rather than
-// stamped on.
-const BLUSH_STOPS = [
-  [0, 1.0],
-  [0.2, 0.85],
-  [0.4, 0.65],
-  [0.6, 0.4],
-  [0.8, 0.18],
-  [1, 0],
-];
+// Lower than the old gradient-peak version on purpose -- a blurred,
+// diffused fill reads as more intense/spread-out than a sharp shape at
+// the same alpha would, so the same "visible flush" needs less of it.
+// (Still fairly high in absolute terms because the strong blur dilutes
+// the core's own alpha substantially by the time it reaches the skin --
+// measured/tuned against real pixel output, not guessed.)
+const BLUSH_PEAK_ALPHA = 0.85;
 // "soft-light" was tried first (theoretically the more natural of the
 // two -- a diffused-light-style blend) but measured/looked too faint
-// against real skin-tone values even at high stop alphas, since its own
-// math is inherently gentle on top of the alpha the texture already
-// attenuates; "multiply" gives a clearly visible warm tint at the same
-// alpha values while keeping exactly the same soft falloff shape (the
-// blur/gradient already baked into the texture controls that, not the
-// blend mode -- canvas compositing still respects the source's per-pixel
-// alpha under any blend mode).
+// against real skin-tone values even at high alpha; "multiply" gives a
+// clearly visible warm tint at the same alpha while the blur pass (not
+// the blend mode) controls the falloff -- canvas compositing still
+// respects the source's per-pixel alpha under any blend mode.
 const BLUSH_BLEND_MODE = "multiply";
-const BLUSH_TEXTURE_SIZE = 300; // px, the offscreen texture's own resolution -- bumped up alongside the blur below, with room to spare before it clips
-const BLUSH_TEXTURE_CIRCLE_R = 38; // the sharp-edged circle drawn before blurring -- big enough that the strong blur below still leaves a visible peak, not just diffusion
-const BLUSH_TEXTURE_BLUR_PX = 26; // ...while this grew, so a bigger fraction of the shape is diffusion rather than "core" -- softer, more blended-into-skin overall
 
 function dist(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-// Built once, reused for both cheeks and every frame after that -- a
-// solid gradient-filled circle, blurred in its own small, undistorted
-// canvas (inset well clear of the edge so the blur has room to fade to
-// fully transparent before it would otherwise get clipped), which
-// drawBlushCheek then stretches into the actual on-face ellipse.
-let blushTextureCanvas = null;
-function getBlushTexture() {
-  if (blushTextureCanvas) return blushTextureCanvas;
-  const size = BLUSH_TEXTURE_SIZE;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  const cx = size / 2;
-  const cy = size / 2;
-
-  const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, BLUSH_TEXTURE_CIRCLE_R);
-  for (const [stop, alpha] of BLUSH_STOPS) {
-    gradient.addColorStop(stop, `rgba(${BLUSH_COLOR_RGB}, ${alpha})`);
-  }
-  ctx.filter = `blur(${BLUSH_TEXTURE_BLUR_PX}px)`;
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.arc(cx, cy, BLUSH_TEXTURE_CIRCLE_R, 0, Math.PI * 2);
-  ctx.fill();
-
-  blushTextureCanvas = canvas;
-  return canvas;
+// One scratch canvas, reused (grown as needed, never shrunk) across every
+// cheek/face/frame instead of allocating a fresh canvas per draw --
+// avoids per-frame canvas-creation churn while still letting the blur
+// radius genuinely scale with each detected face's own size, which a
+// single fixed-size cached texture (the previous approach) couldn't do.
+let blushScratchCanvas = null;
+function getBlushScratchCanvas(minW, minH) {
+  if (!blushScratchCanvas) blushScratchCanvas = document.createElement("canvas");
+  // Assigning .width/.height always clears the canvas, even to the same
+  // value, so only touch them when actually growing.
+  if (blushScratchCanvas.width < minW) blushScratchCanvas.width = minW;
+  if (blushScratchCanvas.height < minH) blushScratchCanvas.height = minH;
+  return blushScratchCanvas;
 }
 
 // Maps just the anchor landmarks this module actually uses (not all 478)
@@ -1968,22 +1943,49 @@ function blendCheekPoint(eyeOuter, mouthCorner, faceEdge) {
   };
 }
 
-function drawBlushCheek(ctx, center, rx, ry, angle) {
-  const texture = getBlushTexture();
+// Draws one cheek's blush as a solid ellipse, blurred in its own small,
+// undistorted scratch canvas, then composited already-blurred onto the
+// main canvas. Blurring on a separate layer first (rather than e.g.
+// scaling an ellipse and filtering the fill in place) keeps the blur
+// isotropic -- a non-uniform scale transform active during a filtered
+// draw would stretch the blur unevenly along with the shape, which can
+// leave a directional, edge-like artifact along the more-stretched axis.
+// Drawn with the real ctx.ellipse() geometry instead, so no scale
+// transform is ever involved and the blur radius means exactly what it
+// says in both directions.
+function drawBlushCheek(ctx, center, coreRx, coreRy, angle, blurPx) {
+  // Generous margin so the blur fades all the way to fully transparent
+  // well inside the scratch canvas, never clipped at its edge (a hard
+  // clip would reintroduce exactly the kind of visible edge this is
+  // trying to avoid). CSS blur(N) is a gaussian with stdDeviation N/2;
+  // ~3 standard deviations covers >99% of its visible falloff.
+  const pad = blurPx * 3;
+  const w = Math.ceil((coreRx + pad) * 2);
+  const h = Math.ceil((coreRy + pad) * 2);
+  const scratch = getBlushScratchCanvas(w, h);
+  const sctx = scratch.getContext("2d");
+  sctx.clearRect(0, 0, scratch.width, scratch.height);
+  sctx.filter = `blur(${blurPx}px)`;
+  sctx.fillStyle = `rgba(${BLUSH_COLOR_RGB}, ${BLUSH_PEAK_ALPHA})`;
+  sctx.beginPath();
+  sctx.ellipse(w / 2, h / 2, coreRx, coreRy, 0, 0, Math.PI * 2);
+  sctx.fill();
+
   ctx.save();
   ctx.filter = "none";
   ctx.globalCompositeOperation = BLUSH_BLEND_MODE;
   ctx.translate(center.x, center.y);
   ctx.rotate(angle);
-  ctx.drawImage(texture, -rx, -ry, rx * 2, ry * 2);
+  ctx.drawImage(scratch, -w / 2, -h / 2, w, h);
   ctx.restore();
 }
 
 function drawFaceBlush(ctx, geo) {
-  const rx = geo.faceWidth * BLUSH_RX_RATIO;
-  const ry = geo.faceWidth * BLUSH_RY_RATIO;
-  drawBlushCheek(ctx, geo.leftCheek, rx, ry, geo.leftCheekAngle);
-  drawBlushCheek(ctx, geo.rightCheek, rx, ry, geo.rightCheekAngle);
+  const coreRx = geo.faceWidth * BLUSH_CORE_RX_RATIO;
+  const coreRy = geo.faceWidth * BLUSH_CORE_RY_RATIO;
+  const blurPx = geo.faceWidth * BLUSH_BLUR_RATIO;
+  drawBlushCheek(ctx, geo.leftCheek, coreRx, coreRy, geo.leftCheekAngle, blurPx);
+  drawBlushCheek(ctx, geo.rightCheek, coreRx, coreRy, geo.rightCheekAngle, blurPx);
 }
 // -------------------------------------------------------------------------
 
@@ -2383,5 +2385,4 @@ async function init() {
 }
 
 init();
-
 
