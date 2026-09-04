@@ -9,7 +9,7 @@
        time script.js/style.css change, or returning visitors' browsers
        can silently keep serving an old cached copy for up to 10 minutes
        (or longer, depending on the browser) after a new deploy. -->
-  <link rel="stylesheet" href="style.css?v=29" />
+  <link rel="stylesheet" href="style.css?v=30" />
 </head>
 <body>
   <video id="webcam-video" autoplay muted playsinline></video>
@@ -54,10 +54,10 @@
   <div id="right-toolbar" aria-label="Camera effects">
     <div id="beauty-picker" aria-label="Face beauty filters">
       <button id="skin-smoother-toggle" type="button" class="pattern-swatch beauty-toggle" aria-pressed="false" title="Skin smoother -- softens detected faces' skin (select again to turn off)">
-        <span class="beauty-toggle-icon" aria-hidden="true">🧴</span>
+        <span class="beauty-toggle-label">Smooth</span>
       </button>
       <button id="blush-toggle" type="button" class="pattern-swatch beauty-toggle" aria-pressed="false" title="Blush -- adds cheek color to detected faces (select again to turn off)">
-        <span class="beauty-toggle-icon" aria-hidden="true">😊</span>
+        <span class="beauty-toggle-label">Blush</span>
       </button>
     </div>
     <div id="right-toolbar-divider"></div>
@@ -165,6 +165,6 @@
        without needing to complete a pinch. -->
   <button id="size-gesture-cancel" type="button" class="btn-secondary size-gesture-cancel-btn" hidden>Cancel</button>
 
-  <script src="script.js?v=29" type="module"></script>
+  <script src="script.js?v=30" type="module"></script>
 </body>
 </html>

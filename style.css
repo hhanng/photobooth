@@ -239,7 +239,7 @@ html, body {
 
 /* Beauty toggles reuse .pattern-swatch's circular sizing/border/active/
    dwell-ring styling wholesale (same class) -- this just adds the bits a
-   pattern swatch doesn't need: centering an icon glyph instead of a
+   pattern swatch doesn't need: centering a text label instead of a
    background-image, since there's no thumbnail to show. */
 .beauty-toggle {
   display: flex;
@@ -248,9 +248,19 @@ html, body {
   background-image: none !important;
 }
 
-.beauty-toggle-icon {
-  font-size: clamp(16px, min(4.2vw, 4.2vh), 26px);
+/* Sized well below .pattern-swatch's own clamp() (a short word needs
+   much more headroom than a single glyph did) so "Smooth" -- the longer
+   of the two labels -- stays inside the circle at every size, including
+   the smallest mobile swatch. Font/weight matches the app's other small
+   UI labels (#brand, .btn-primary) rather than introducing a new style. */
+.beauty-toggle-label {
+  font-size: clamp(9px, min(2.4vw, 2.4vh), 14px);
+  font-weight: 600;
+  letter-spacing: 0.01em;
   line-height: 1;
+  color: var(--text);
+  text-align: center;
+  white-space: nowrap;
   pointer-events: none;
 }
 

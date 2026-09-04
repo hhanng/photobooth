@@ -46,8 +46,9 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   runs alongside the hand tracker (same video, its own independent
   `detectForVideo` call each frame) and detects every face currently in
   view, up to 4 at once. Two independent toggle buttons sit at the top of
-  the right-edge toolbar (🧴 Skin Smoother, 😊 Blush), styled and
-  interactive exactly like the strip-pattern swatches below them: click,
+  the right-edge toolbar (plain text labels, "Smooth" and "Blush"),
+  styled and interactive exactly like the strip-pattern swatches below
+  them: click,
   or either hand's index fingertip dwelling on one for half a second, and
   selecting an already-active toggle again turns it off. Either, both, or
   neither can be on; live in the viewfinder and baked into the actual
