@@ -69,13 +69,17 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
     blur pass, rendered once into its own small offscreen canvas and
     cached, gives a genuinely soft photographic diffusion no number of
     gradient color-stops alone can quite fake, and every actual draw
-    after that is just one cheap `drawImage` call. Blended with the
-    canvas `multiply` composite mode (tried `soft-light` first — more
-    "natural" in theory, but measured/looked too faint against real
-    skin-tone values) so it reads as tinting the skin rather than a flat
-    sticker sitting on top of it, while keeping the same soft falloff
-    the blur/gradient already bake in (canvas compositing still respects
-    per-pixel alpha under any blend mode). Cheek position is a geometric
+    after that is just one cheap `drawImage` call. The texture's own
+    blur is deliberately large relative to its solid "core" circle —
+    most of the shape is diffusion, not flat color — with a bigger core
+    than that alone would suggest so the peak still reads as visible
+    rather than just a haze. Blended with the canvas `multiply`
+    composite mode (tried `soft-light` first — more "natural" in theory,
+    but measured/looked too faint against real skin-tone values) so it
+    reads as tinting the skin rather than a flat sticker sitting on top
+    of it, while keeping the same soft falloff the blur/gradient already
+    bake in (canvas compositing still respects per-pixel alpha under any
+    blend mode). Cheek position is a geometric
     blend of eye-corner, mouth-corner, and face-edge landmarks (rather
     than a single less-certain "cheek" index), weighted toward eye
     height for a natural upper-cheek placement.

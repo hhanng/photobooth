@@ -1856,20 +1856,24 @@ const FACE_LM = {
 // photographic diffusion no number of gradient color-stops can quite
 // fake, and caching it means every actual draw is just one cheap
 // drawImage call.
-const BLUSH_RX_RATIO = 0.22; // horizontal half-width, relative to face width
-const BLUSH_RY_RATIO = 0.09; // vertical half-height -- flat and wide, not round
+const BLUSH_RX_RATIO = 0.28; // horizontal half-width, relative to face width -- widened from the first sweep version
+const BLUSH_RY_RATIO = 0.1; // vertical half-height -- flat and wide, not round
 const BLUSH_COLOR_RGB = "255, 120, 120"; // warm coral-pink, closer to a natural flush than a cool magenta
 // Peak alpha here reads noticeably weaker than these numbers by the time
 // it's on screen -- the blur below (bigger than the circle it's blurring)
 // dilutes the center by averaging in the fully-transparent area just past
 // the circle's edge, which is deliberate (that's what makes the falloff
 // actually soft) but has to be compensated for with higher stops than a
-// crisp, unblurred gradient would need.
+// crisp, unblurred gradient would need. More stops than strictly needed
+// for the shape -- a smoother, more continuous-reading falloff (less
+// banding) is a real part of what makes it look blended rather than
+// stamped on.
 const BLUSH_STOPS = [
-  [0, 0.9],
-  [0.3, 0.7],
-  [0.55, 0.42],
-  [0.8, 0.15],
+  [0, 1.0],
+  [0.2, 0.85],
+  [0.4, 0.65],
+  [0.6, 0.4],
+  [0.8, 0.18],
   [1, 0],
 ];
 // "soft-light" was tried first (theoretically the more natural of the
@@ -1882,9 +1886,9 @@ const BLUSH_STOPS = [
 // blend mode -- canvas compositing still respects the source's per-pixel
 // alpha under any blend mode).
 const BLUSH_BLEND_MODE = "multiply";
-const BLUSH_TEXTURE_SIZE = 240; // px, the offscreen texture's own resolution
-const BLUSH_TEXTURE_CIRCLE_R = 34; // the sharp-edged circle drawn before blurring
-const BLUSH_TEXTURE_BLUR_PX = 18; // real gaussian blur applied to that circle -- most of the "softness" comes from here, not the gradient stops
+const BLUSH_TEXTURE_SIZE = 300; // px, the offscreen texture's own resolution -- bumped up alongside the blur below, with room to spare before it clips
+const BLUSH_TEXTURE_CIRCLE_R = 38; // the sharp-edged circle drawn before blurring -- big enough that the strong blur below still leaves a visible peak, not just diffusion
+const BLUSH_TEXTURE_BLUR_PX = 26; // ...while this grew, so a bigger fraction of the shape is diffusion rather than "core" -- softer, more blended-into-skin overall
 
 function dist(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
