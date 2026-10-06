@@ -44,60 +44,16 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   photo without covering the subject). The current style's name shows in
   a small pill at the bottom of the screen, and applies live in the
   viewfinder so you can see it before you shoot.
-- **Face beauty filters** — a second MediaPipe model, `FaceLandmarker`,
-  runs alongside the hand tracker (same video, its own independent
-  `detectForVideo` call each frame) and detects every face currently in
-  view, up to 4 at once. Two independent toggle buttons sit at the top of
-  the right-edge toolbar (plain text labels, "Smooth" and "Blush"),
-  styled and interactive exactly like the strip-pattern swatches below
-  them: click,
-  or either hand's index fingertip dwelling on one for half a second, and
-  selecting an already-active toggle again turns it off. Either, both, or
-  neither can be on; live in the viewfinder and baked into the actual
-  saved photo.
-  - **Skin Smoother** is a plain, gentle whole-frame soft-focus pass —
-    not masked to face regions at all. A blurred copy of the entire
-    camera view is blended back over the sharp one at low opacity
-    (5px blur, 25% opacity), independent of face detection or the
-    hand-formed capture rectangle. A precise face mask reads as an
-    obvious "filter edge" the moment it's even slightly off; a gentle,
-    edge-less blur over everything doesn't have an edge to notice, and
-    skin is what visibly benefits from a small blur anyway.
-  - **Blush** paints a soft, diffused warm coral-pink glow across the
-    upper cheeks of every detected face — a wide, flat SWEEP shape (like
-    a brush stroke from under the eye out toward the ear, angled to
-    follow the eye-to-face-edge line) rather than a round dot, but with
-    no gradient and no visible edge at all: what's actually drawn is a
-    plain SOLID ellipse on a small offscreen scratch canvas, then a real
-    `ctx.filter = blur(...)` pass (not faked with gradient color-stops)
-    blurs that layer before it's composited onto the face, already-
-    blurred, with one `drawImage` call. A gradient — even a blurred one —
-    still has a defined center where the color stops changing, which the
-    eye picks up as an edge; blurring a flat solid fill by a radius on
-    the same order as the shape itself leaves no such plateau, closer to
-    a point of light diffused into a glow than a shape with a soft rim.
-    Both the solid ellipse's size and the blur radius scale with the
-    detected face's own width, so it holds together at any distance from
-    the camera — computed fresh per face/per frame rather than cached as
-    a fixed-size texture (the scratch canvas itself *is* reused and only
-    grown, never recreated, to avoid per-frame allocation churn). Peak
-    opacity is tuned lower than a sharp shape would need, since a
-    blurred, diffused fill reads as more intense/spread out than the
-    same alpha does on a crisp edge. Blended with the canvas `multiply`
-    composite mode (tried `soft-light` first — more "natural" in theory,
-    but measured/looked too faint against real skin-tone values) so it
-    reads as tinting the skin rather than a flat sticker sitting on top
-    of it. Cheek position is a geometric blend of eye-corner,
-    mouth-corner, and face-edge landmarks (rather than a single
-    less-certain "cheek" index), weighted mostly toward mouth-corner
-    height so it sits on the actual cheek rather than up near the eyes.
-    Only renders under the "No Filter" style — a warm pink tint either
-    gets stripped right back out by a desaturating style (Vintage B&W,
-    Sepia, Star Scrapbook) or clashes with its own color grading, so
-    Blush is skipped entirely (live preview and the baked photo alike)
-    whenever any other style is selected, even if the toggle itself is
-    still on; switching back to "No Filter" brings it right back with no
-    need to re-toggle.
+- **Skin Smoother** — a toggle at the top of the right-edge toolbar
+  (plain text label "Smooth"), styled and interactive exactly like the
+  strip-pattern swatches below it: click, or either hand's index
+  fingertip dwelling on it for half a second; selecting it again turns it
+  off. Live in the viewfinder and baked into the actual saved photo. A
+  plain, gentle whole-frame soft-focus pass — a blurred copy of the entire
+  camera view blended back over the sharp one at low opacity (5px blur,
+  25% opacity), independent of the hand-formed capture rectangle and not
+  masked to faces (a precise mask reads as an obvious "filter edge" the
+  moment it's slightly off).
 - **Capture** — pinch your RIGHT hand's thumb and index tip together and
   *hold* the pinch for a full second (a small progress ring appears at the
   pinch point so you can see it registering) to lock the frame in place
@@ -150,7 +106,7 @@ with a left-hand pinch), while the rest of the (color) video stays normal.
   the next slot; empty slots show a dimmed, numbered placeholder so you
   can see how many shots remain.
 - **Strip background pattern** — a column of large round swatches (below
-  the two face-beauty-filter toggles, sharing the same vertically-centered
+  the skin-smoother toggle, sharing the same vertically-centered
   right-edge toolbar), one per available pattern: red stripes, blue
   stars, pink watercolor stars, Starry Night, pink glass tile, and
   leopard print (more can be added
@@ -562,3 +518,15 @@ both — with "Done" clearing the strip for the next round.
 - `script.js` — webcam init, canvas setup, MediaPipe hand tracking, the viewfinder/style-presets/strip-crop-guide/capture/photo-strip logic, the `SizePicker` custom-size save modal, the `RoundCompleteModal` save-choice modal, and the `PatternPicker` strip background picker
 - `assets/scrapbook-overlay.png` — the decorative stars/sparkles overlay used by the Star Scrapbook style
 - `assets/strip-patterns/` — the 6 selectable strip background patterns (`red-stripes.png`, the default, plus `blue-stars.png`, `pink-watercolor-stars.png`, `starry-night.png`, `pink-glass-tile.png`, `leopard.png`)
+
+## Browser compatibility notes
+
+- Canvas `ctx.filter` (used for every style and the smoother) isn't
+  implemented in Safari, so `drawImageFiltered` detects that at startup
+  and applies the same grayscale/sepia/contrast/brightness/saturate list
+  per-pixel instead (blur is approximated by down/up-scaling). The live
+  preview does this on a downscaled copy to stay fast.
+- The hand model tries MediaPipe's GPU delegate first and falls back to
+  CPU if the browser can't create the needed WebGL context.
+- The render loop starts as soon as the page loads; the hand model
+  downloads and warms up in the background.

@@ -1,7 +1,6 @@
 import {
   FilesetResolver,
   HandLandmarker,
-  FaceLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
 // --- Hand tracking ---------------------------------------------------------
@@ -21,17 +20,6 @@ const INDEX_TIP = 8;
 // 0..1: lower = smoother but laggier, higher = snappier but more jittery.
 // Tune this to taste.
 const FRAME_SMOOTHING_ALPHA = 0.35;
-// -------------------------------------------------------------------------
-
-// --- Face tracking -----------------------------------------------------
-// A second, independent MediaPipe landmarker running alongside
-// HandLandmarker (same video frame, its own detectForVideo call) --
-// drives the face-based beauty filters (skin smoother, blush) below,
-// across every face currently in frame, entirely independent of the
-// hand-formed capture rectangle.
-const FACE_MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
-const MAX_FACES = 4;
 // -------------------------------------------------------------------------
 
 // --- Viewfinder frame look --------------------------------------------
@@ -142,6 +130,131 @@ function preloadStyleOverlays() {
   }
 }
 
+// --- ctx.filter support + fallback ---------------------------------------
+// Canvas `ctx.filter` isn't implemented in Safari (iPad/iPhone browsers,
+// Mac Safari) -- assigning it is silently ignored, so every style and the
+// smoother rendered as the plain, unstyled feed there. Detected by
+// actually drawing a pixel through a filter (not by property sniffing, as
+// some builds expose the property without honoring it); when it doesn't
+// work, drawImageFiltered below applies the same filter list by hand.
+const CTX_FILTER_SUPPORTED = (() => {
+  try {
+    const c = document.createElement("canvas");
+    c.width = c.height = 1;
+    const cx = c.getContext("2d");
+    cx.filter = "grayscale(1)";
+    cx.fillStyle = "#f00";
+    cx.fillRect(0, 0, 1, 1);
+    const d = cx.getImageData(0, 0, 1, 1).data;
+    return d[0] !== 255; // red stayed pure red -> filter ignored
+  } catch (e) {
+    return false;
+  }
+})();
+
+// Fallback processing runs per-pixel in JS, so the live preview works on
+// a downscaled copy; capture (one-off) passes no cap and stays full size.
+const LIVE_FALLBACK_MAX_DIM = 560;
+
+function parseFilterString(filter) {
+  const ops = [];
+  let blurPx = 0;
+  const re = /([a-z-]+)\(\s*([-\d.]+)(px)?\s*\)/g;
+  let m;
+  while ((m = re.exec(filter))) {
+    const v = parseFloat(m[2]);
+    if (m[1] === "blur") blurPx = v;
+    else ops.push([m[1], v]);
+  }
+  return { ops, blurPx };
+}
+
+// Composes the color ops into one affine transform: out = M * rgb + o.
+function buildColorTransform(ops) {
+  let M = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  let o = [0, 0, 0];
+  const apply = (A, b) => {
+    const nM = new Array(9);
+    for (let r = 0; r < 3; r++)
+      for (let c = 0; c < 3; c++)
+        nM[r * 3 + c] = A[r * 3] * M[c] + A[r * 3 + 1] * M[3 + c] + A[r * 3 + 2] * M[6 + c];
+    o = [0, 1, 2].map((r) => A[r * 3] * o[0] + A[r * 3 + 1] * o[1] + A[r * 3 + 2] * o[2] + b[r]);
+    M = nM;
+  };
+  for (const [fn, raw] of ops) {
+    const a = clamp(raw, 0, fn === "grayscale" || fn === "sepia" ? 1 : Infinity);
+    const k = 1 - a;
+    if (fn === "grayscale") {
+      apply([0.2126 + 0.7874 * k, 0.7152 - 0.7152 * k, 0.0722 - 0.0722 * k,
+             0.2126 - 0.2126 * k, 0.7152 + 0.2848 * k, 0.0722 - 0.0722 * k,
+             0.2126 - 0.2126 * k, 0.7152 - 0.7152 * k, 0.0722 + 0.9278 * k], [0, 0, 0]);
+    } else if (fn === "sepia") {
+      apply([0.393 + 0.607 * k, 0.769 - 0.769 * k, 0.189 - 0.189 * k,
+             0.349 - 0.349 * k, 0.686 + 0.314 * k, 0.168 - 0.168 * k,
+             0.272 - 0.272 * k, 0.534 - 0.534 * k, 0.131 + 0.869 * k], [0, 0, 0]);
+    } else if (fn === "saturate") {
+      apply([0.213 + 0.787 * a, 0.715 - 0.715 * a, 0.072 - 0.072 * a,
+             0.213 - 0.213 * a, 0.715 + 0.285 * a, 0.072 - 0.072 * a,
+             0.213 - 0.213 * a, 0.715 - 0.715 * a, 0.072 + 0.928 * a], [0, 0, 0]);
+    } else if (fn === "contrast") {
+      const off = 255 * (0.5 - 0.5 * a);
+      apply([a, 0, 0, 0, a, 0, 0, 0, a], [off, off, off]);
+    } else if (fn === "brightness") {
+      apply([a, 0, 0, 0, a, 0, 0, 0, a], [0, 0, 0]);
+    }
+  }
+  return { M, o };
+}
+
+let filterScratchCanvas = null;
+let filterScratchCtx = null;
+
+// Drop-in for `ctx.filter = f; ctx.drawImage(img, sx,sy,sw,sh, dx,dy,dw,dh)`
+// that also works where ctx.filter doesn't. Blur is approximated by
+// rendering at reduced size and scaling back up with smoothing.
+function drawImageFiltered(ctx, filter, img, sx, sy, sw, sh, dx, dy, dw, dh, maxDim = Infinity) {
+  if (filter === "none" || CTX_FILTER_SUPPORTED) {
+    ctx.filter = filter;
+    ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+    ctx.filter = "none";
+    return;
+  }
+
+  const { ops, blurPx } = parseFilterString(filter);
+  const blurShrink = Math.max(1, blurPx * 0.8);
+  const shrink = Math.min(1, maxDim / Math.max(dw, dh)) / blurShrink;
+  const w = Math.max(1, Math.round(dw * shrink));
+  const h = Math.max(1, Math.round(dh * shrink));
+
+  if (!filterScratchCanvas) {
+    filterScratchCanvas = document.createElement("canvas");
+    filterScratchCtx = filterScratchCanvas.getContext("2d", { willReadFrequently: true });
+  }
+  if (filterScratchCanvas.width !== w) filterScratchCanvas.width = w;
+  if (filterScratchCanvas.height !== h) filterScratchCanvas.height = h;
+  const sctx = filterScratchCtx;
+  sctx.clearRect(0, 0, w, h);
+  sctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+
+  if (ops.length) {
+    const { M, o } = buildColorTransform(ops);
+    const frame = sctx.getImageData(0, 0, w, h);
+    const px = frame.data; // Uint8ClampedArray clamps on write
+    for (let i = 0; i < px.length; i += 4) {
+      const r = px[i], g = px[i + 1], b = px[i + 2];
+      px[i] = M[0] * r + M[1] * g + M[2] * b + o[0];
+      px[i + 1] = M[3] * r + M[4] * g + M[5] * b + o[1];
+      px[i + 2] = M[6] * r + M[7] * g + M[8] * b + o[2];
+    }
+    sctx.putImageData(frame, 0, 0);
+  }
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(filterScratchCanvas, 0, 0, w, h, dx, dy, dw, dh);
+}
+// -------------------------------------------------------------------------
+
 // Grain: a handful of pre-rendered static noise tiles (built once, not
 // per-frame) cycled every few frames for a subtle flicker, blended with
 // "overlay" at low alpha over the filtered crop.
@@ -196,9 +309,7 @@ function drawStylePostProcessing(ctx, style, x, y, w, h) {
 }
 // -------------------------------------------------------------------------
 
-// (Face-based beauty filters -- skin smoother + blush -- live further
-// down, near the face-tracking/rendering code they depend on; see
-// "Face beauty filters" below.)
+// (The skin smoother lives further down; see "Skin smoother toggle".)
 
 // --- Photo strip + auto-save --------------------------------------------
 const STRIP_SLOT_COUNT = 4;
@@ -424,8 +535,7 @@ const HandTracker = {
   async init() {
     try {
       const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL);
-      this.landmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate: "GPU" },
+      const options = {
         runningMode: "VIDEO",
         numHands: MAX_HANDS,
         // Nudged down from MediaPipe's 0.5 defaults so both hands are
@@ -435,7 +545,22 @@ const HandTracker = {
         minHandDetectionConfidence: 0.4,
         minHandPresenceConfidence: 0.4,
         minTrackingConfidence: 0.4,
-      });
+      };
+      try {
+        this.landmarker = await HandLandmarker.createFromOptions(vision, {
+          ...options,
+          baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate: "GPU" },
+        });
+      } catch (gpuErr) {
+        // Some browsers (notably iOS/iPadOS Safari) can't create the
+        // WebGL context the GPU delegate needs -- retry on CPU rather
+        // than leaving hand tracking dead.
+        console.warn("HandLandmarker GPU delegate failed, retrying on CPU:", gpuErr);
+        this.landmarker = await HandLandmarker.createFromOptions(vision, {
+          ...options,
+          baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate: "CPU" },
+        });
+      }
       setStatus("hand-status", "hand: ready", "ok");
       return true;
     } catch (err) {
@@ -466,66 +591,6 @@ const HandTracker = {
       landmarks,
       handedness: resolveHandedness(result.handednesses[i]?.[0]?.categoryName),
     }));
-    return this._lastResult;
-  },
-};
-
-// A second, independent landmarker running against the same video element
-// -- its own model, its own detectForVideo call, its own last-frame cache
-// -- entirely separate from HandTracker so the two never interfere with
-// each other. Detects every face currently in frame (up to MAX_FACES),
-// not scoped to any hand-formed rectangle.
-const FaceTracker = {
-  landmarker: null,
-  lastVideoTime: -1,
-  _lastResult: [],
-
-  async init() {
-    try {
-      const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL);
-      this.landmarker = await FaceLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: FACE_MODEL_URL, delegate: "GPU" },
-        runningMode: "VIDEO",
-        numFaces: MAX_FACES,
-        // Beauty-filter masking only needs the geometry (eyes/lips/face
-        // outline positions) -- blendshapes and the 3D transform matrix
-        // are extra output this doesn't use, so both stay off to keep
-        // per-frame inference as light as possible.
-        outputFaceBlendshapes: false,
-        outputFacialTransformationMatrixes: false,
-        minFaceDetectionConfidence: 0.5,
-        minFacePresenceConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
-      setStatus("face-status", "face: ready", "ok");
-      return true;
-    } catch (err) {
-      setStatus("face-status", "face: failed", "error");
-      console.error("FaceLandmarker init error:", err);
-      return false;
-    }
-  },
-
-  // Returns an array of faces (each 478 landmarks) detected in the most
-  // recent new video frame. Returns the cached previous result if the
-  // video hasn't advanced to a new frame since the last call -- same
-  // caching contract as HandTracker.detect, and safe to call more than
-  // once per frame (e.g. once from mainLoop, again from capturePhoto)
-  // without re-running inference.
-  detect(videoEl, nowMs) {
-    if (!this.landmarker || videoEl.readyState < 2 || !videoEl.videoWidth) return this._lastResult;
-    if (videoEl.currentTime === this.lastVideoTime) return this._lastResult;
-    this.lastVideoTime = videoEl.currentTime;
-
-    const result = this.landmarker.detectForVideo(videoEl, nowMs);
-    if (!result.faceLandmarks || result.faceLandmarks.length === 0) {
-      setStatus("face-status", "face: no faces", null);
-      this._lastResult = [];
-      return this._lastResult;
-    }
-
-    setStatus("face-status", `face: ${result.faceLandmarks.length} detected`, "ok");
-    this._lastResult = result.faceLandmarks.map((landmarks) => ({ landmarks }));
     return this._lastResult;
   },
 };
@@ -794,8 +859,7 @@ function drawStyledFrame(rectX, rectY, rectW, rectH, video, videoW, videoH) {
   ctx.save();
   ctx.translate(rectX + rectW, rectY);
   ctx.scale(-1, 1);
-  ctx.filter = style.filter;
-  ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, rectW, rectH);
+  drawImageFiltered(ctx, style.filter, video, srcX, srcY, srcW, srcH, 0, 0, rectW, rectH, LIVE_FALLBACK_MAX_DIM);
   ctx.restore();
 
   // Grain / decorative overlay, still within the same clip.
@@ -866,10 +930,8 @@ function logCapturedPhoto(photo) {
 // Crops the *raw* video to the locked rectangle's bounds (same source-rect
 // math as the live preview), renders it to its own small canvas at the
 // rectangle's own pixel size with the same vintage filter + grain, and
-// stores it in `capturedPhotos`. nowMs is only needed to look up the
-// (already-detected-this-frame, cached) face landmarks for baking in the
-// face beauty filters -- see drawFaceEffectsOnCapture below.
-function capturePhoto(video, videoW, videoH, rectX, rectY, rectW, rectH, nowMs) {
+// stores it in `capturedPhotos`.
+function capturePhoto(video, videoW, videoH, rectX, rectY, rectW, rectH) {
   // Whatever style is active right now -- at the moment the countdown
   // actually reaches zero -- is what gets baked in, so cycling styles
   // during the countdown (if the user changes their mind) still applies.
@@ -892,17 +954,14 @@ function capturePhoto(video, videoW, videoH, rectX, rectY, rectW, rectH, nowMs) 
   pctx.save();
   pctx.translate(outW, 0);
   pctx.scale(-1, 1);
-  pctx.filter = style.filter;
-  pctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+  drawImageFiltered(pctx, style.filter, video, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
   pctx.restore();
 
   drawStylePostProcessing(pctx, style, 0, 0, outW, outH);
 
-  // Face beauty filters (skin smoother / blush) -- baked in whenever
-  // they're currently toggled on, using whichever faces were detected in
-  // this same video frame, remapped from full-video-space into this
-  // crop's own local pixel space.
-  drawFaceEffectsOnCapture(pctx, video, style, videoW, videoH, srcX, srcY, srcW, srcH, outW, outH, nowMs);
+  if (SkinSmootherState.enabled) {
+    drawSkinSmootherCapture(pctx, video, style, srcX, srcY, srcW, srcH, outW, outH);
+  }
 
   const photo = {
     canvas: photoCanvas,
@@ -1764,11 +1823,9 @@ const PatternPicker = {
 };
 // -------------------------------------------------------------------------
 
-// --- Face beauty filters (skin smoother + blush) --------------------------
-// Two independent on/off toggles. Both live in the viewfinder and get
-// baked into the actual saved photo.
+// --- Skin smoother toggle -------------------------------------------------
+// Lives in the viewfinder and gets baked into the actual saved photo.
 const SkinSmootherState = { enabled: false };
-const BlushState = { enabled: false };
 
 // --- Skin smoother: gentle whole-frame blur -------------------------------
 // A plain soft-focus pass over the ENTIRE frame -- not masked to face
@@ -1808,9 +1865,11 @@ function drawSkinSmootherLive(video, videoW, videoH) {
   ctx.save();
   ctx.translate(Canvas.width, 0);
   ctx.scale(-1, 1);
-  ctx.filter = `blur(${SKIN_SMOOTH_BLUR_PX}px)`;
   ctx.globalAlpha = SKIN_SMOOTH_ALPHA;
-  ctx.drawImage(video, 0, 0, videoW, videoH, offsetX, offsetY, dispW, dispH);
+  drawImageFiltered(
+    ctx, `blur(${SKIN_SMOOTH_BLUR_PX}px)`, video,
+    0, 0, videoW, videoH, offsetX, offsetY, dispW, dispH, LIVE_FALLBACK_MAX_DIM
+  );
   ctx.restore();
 }
 
@@ -1824,226 +1883,15 @@ function drawSkinSmootherCapture(ctx, video, style, srcX, srcY, srcW, srcH, dest
   ctx.save();
   ctx.translate(destW, 0);
   ctx.scale(-1, 1);
-  ctx.filter = withBlur(style.filter, SKIN_SMOOTH_BLUR_PX);
   ctx.globalAlpha = SKIN_SMOOTH_ALPHA;
-  ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, destW, destH);
-  ctx.restore();
-}
-// -------------------------------------------------------------------------
-
-// --- Blush: soft radial tint on each detected face's cheeks ---------------
-// Built from a small set of well-established, stable FaceLandmarker
-// anchor points (face-edge/eye-corner/mouth-corner landmarks used
-// ubiquitously across MediaPipe face-mesh tooling), rather than a single
-// less-certain "cheek" index -- see blendCheekPoint.
-const FACE_LM = {
-  LEFT_FACE_EDGE: 234,
-  RIGHT_FACE_EDGE: 454,
-  LEFT_EYE_OUTER: 33,
-  RIGHT_EYE_OUTER: 263,
-  MOUTH_LEFT: 61,
-  MOUTH_RIGHT: 291,
-};
-
-// Shape: a wide, flat, horizontal SWEEP (like a diffused brush stroke
-// from under the eye out toward the ear) rather than a round dot -- a
-// round blob reads as "drawn on" almost no matter how soft its edge is.
-// The actual "shape" drawn is a plain SOLID ellipse -- no gradient at
-// all -- with a strong real blur pass doing 100% of the falloff work
-// (see drawBlushCheek). A gradient (even a blurred one) still has a
-// defined center where color stops changing, which the eye can pick up
-// as an edge; a solid fill blurred by a radius on the same order as the
-// shape itself has no such plateau -- it's soft diffusion all the way
-// through, closer to a point of light blurred into a glow than a shape
-// with a soft rim. (An even smaller core blurred by a much larger
-// radius reads as *more* edgeless still, but was tuned back up from
-// there -- past a point it dilutes the peak alpha so much the result is
-// barely visible at all, even compensating with higher opacity.) Both
-// the core size and the blur radius scale with face size so it holds
-// together at any distance from the camera.
-const BLUSH_CORE_RX_RATIO = 0.16; // solid-ellipse half-width before blur, relative to face width -- small on purpose
-const BLUSH_CORE_RY_RATIO = 0.07; // half-height -- flat and wide, not round
-const BLUSH_BLUR_RATIO = 0.1; // blur radius, relative to face width -- comparable to the core, so blur (not the shape) defines how it reads
-const BLUSH_COLOR_RGB = "255, 120, 120"; // warm coral-pink, closer to a natural flush than a cool magenta
-// Lower than the old gradient-peak version on purpose -- a blurred,
-// diffused fill reads as more intense/spread-out than a sharp shape at
-// the same alpha would, so the same "visible flush" needs less of it.
-// (Still fairly high in absolute terms because the strong blur dilutes
-// the core's own alpha substantially by the time it reaches the skin --
-// measured/tuned against real pixel output, not guessed.)
-const BLUSH_PEAK_ALPHA = 0.85;
-// "soft-light" was tried first (theoretically the more natural of the
-// two -- a diffused-light-style blend) but measured/looked too faint
-// against real skin-tone values even at high alpha; "multiply" gives a
-// clearly visible warm tint at the same alpha while the blur pass (not
-// the blend mode) controls the falloff -- canvas compositing still
-// respects the source's per-pixel alpha under any blend mode.
-const BLUSH_BLEND_MODE = "multiply";
-
-function dist(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-// One scratch canvas, reused (grown as needed, never shrunk) across every
-// cheek/face/frame instead of allocating a fresh canvas per draw --
-// avoids per-frame canvas-creation churn while still letting the blur
-// radius genuinely scale with each detected face's own size, which a
-// single fixed-size cached texture (the previous approach) couldn't do.
-let blushScratchCanvas = null;
-function getBlushScratchCanvas(minW, minH) {
-  if (!blushScratchCanvas) blushScratchCanvas = document.createElement("canvas");
-  // Assigning .width/.height always clears the canvas, even to the same
-  // value, so only touch them when actually growing.
-  if (blushScratchCanvas.width < minW) blushScratchCanvas.width = minW;
-  if (blushScratchCanvas.height < minH) blushScratchCanvas.height = minH;
-  return blushScratchCanvas;
-}
-
-// Maps just the anchor landmarks this module actually uses (not all 478)
-// through `mapPoint` -- a closure that already differs between the live
-// preview (full-canvas cover-fit mapping) and a capture bake (a specific
-// crop's own local mapping), so this same function works for both.
-function computeFacePoints(landmarks, mapPoint) {
-  const L = FACE_LM;
-  const pt = (i) => mapPoint(landmarks[i].x, landmarks[i].y);
-  return {
-    leftEdge: pt(L.LEFT_FACE_EDGE),
-    rightEdge: pt(L.RIGHT_FACE_EDGE),
-    leftEyeOuter: pt(L.LEFT_EYE_OUTER),
-    rightEyeOuter: pt(L.RIGHT_EYE_OUTER),
-    mouthLeft: pt(L.MOUTH_LEFT),
-    mouthRight: pt(L.MOUTH_RIGHT),
-  };
-}
-
-function computeFaceGeometry(p) {
-  return {
-    faceWidth: dist(p.leftEdge, p.rightEdge),
-    leftCheek: blendCheekPoint(p.leftEyeOuter, p.mouthLeft, p.leftEdge),
-    rightCheek: blendCheekPoint(p.rightEyeOuter, p.mouthRight, p.rightEdge),
-    // The natural "sweep" direction for each cheek -- from the eye's
-    // outer corner out toward the face edge, which is roughly how you'd
-    // actually drag a blush brush; also naturally mirrors correctly
-    // between the left/right cheeks since the two vectors point in
-    // opposite x-directions.
-    leftCheekAngle: Math.atan2(p.leftEdge.y - p.leftEyeOuter.y, p.leftEdge.x - p.leftEyeOuter.x),
-    rightCheekAngle: Math.atan2(p.rightEdge.y - p.rightEyeOuter.y, p.rightEdge.x - p.rightEyeOuter.x),
-  };
-}
-
-// A natural cheek "apple" position, derived (not a single raw landmark)
-// from three high-confidence anchors, weighted mostly toward mouth-corner
-// height with the eye-outer corner mainly pulling it up off the jawline --
-// moved down twice from an initial eye-weighted version after feedback
-// that it sat too high, up into the eye area on a real face.
-function blendCheekPoint(eyeOuter, mouthCorner, faceEdge) {
-  return {
-    x: eyeOuter.x * 0.5 + faceEdge.x * 0.3 + mouthCorner.x * 0.2,
-    y: eyeOuter.y * 0.3 + mouthCorner.y * 0.7,
-  };
-}
-
-// Draws one cheek's blush as a solid ellipse, blurred in its own small,
-// undistorted scratch canvas, then composited already-blurred onto the
-// main canvas. Blurring on a separate layer first (rather than e.g.
-// scaling an ellipse and filtering the fill in place) keeps the blur
-// isotropic -- a non-uniform scale transform active during a filtered
-// draw would stretch the blur unevenly along with the shape, which can
-// leave a directional, edge-like artifact along the more-stretched axis.
-// Drawn with the real ctx.ellipse() geometry instead, so no scale
-// transform is ever involved and the blur radius means exactly what it
-// says in both directions.
-function drawBlushCheek(ctx, center, coreRx, coreRy, angle, blurPx) {
-  // Generous margin so the blur fades all the way to fully transparent
-  // well inside the scratch canvas, never clipped at its edge (a hard
-  // clip would reintroduce exactly the kind of visible edge this is
-  // trying to avoid). CSS blur(N) is a gaussian with stdDeviation N/2;
-  // ~3 standard deviations covers >99% of its visible falloff.
-  const pad = blurPx * 3;
-  const w = Math.ceil((coreRx + pad) * 2);
-  const h = Math.ceil((coreRy + pad) * 2);
-  const scratch = getBlushScratchCanvas(w, h);
-  const sctx = scratch.getContext("2d");
-  sctx.clearRect(0, 0, scratch.width, scratch.height);
-  sctx.filter = `blur(${blurPx}px)`;
-  sctx.fillStyle = `rgba(${BLUSH_COLOR_RGB}, ${BLUSH_PEAK_ALPHA})`;
-  sctx.beginPath();
-  sctx.ellipse(w / 2, h / 2, coreRx, coreRy, 0, 0, Math.PI * 2);
-  sctx.fill();
-
-  ctx.save();
-  ctx.filter = "none";
-  ctx.globalCompositeOperation = BLUSH_BLEND_MODE;
-  ctx.translate(center.x, center.y);
-  ctx.rotate(angle);
-  ctx.drawImage(scratch, -w / 2, -h / 2, w, h);
+  drawImageFiltered(ctx, withBlur(style.filter, SKIN_SMOOTH_BLUR_PX), video, srcX, srcY, srcW, srcH, 0, 0, destW, destH);
   ctx.restore();
 }
 
-function drawFaceBlush(ctx, geo) {
-  const coreRx = geo.faceWidth * BLUSH_CORE_RX_RATIO;
-  const coreRy = geo.faceWidth * BLUSH_CORE_RY_RATIO;
-  const blurPx = geo.faceWidth * BLUSH_BLUR_RATIO;
-  drawBlushCheek(ctx, geo.leftCheek, coreRx, coreRy, geo.leftCheekAngle, blurPx);
-  drawBlushCheek(ctx, geo.rightCheek, coreRx, coreRy, geo.rightCheekAngle, blurPx);
-}
-// -------------------------------------------------------------------------
-
-// --- Combined per-frame / per-capture passes -------------------------------
-// Live-preview pass: skin smoother (whole frame, no face detection
-// needed at all) plus blush (per detected face) -- independent of any
-// hand-frame rectangle or CaptureState.phase, called unconditionally from
-// mainLoop each frame, same as PatternPicker.updateDwell.
-function drawFaceEffects(video, videoW, videoH, faces) {
+// Live pass: smoother only (no face detection involved) -- called each
+// frame from mainLoop, independent of any hand-frame rectangle.
+function drawFaceEffects(video, videoW, videoH) {
   if (SkinSmootherState.enabled) drawSkinSmootherLive(video, videoW, videoH);
-  // Blush is a warm pink tint -- it only reads as "blush" on the true
-  // color feed. Under a desaturating/tinting style (Vintage B&W, Sepia,
-  // Star Scrapbook) it either gets stripped right back out or clashes
-  // with the style's own color grading, so it's limited to "No Filter".
-  if (!BlushState.enabled || STYLES[StyleState.index].filter !== "none") return;
-
-  const ctx = Canvas.ctx;
-  const mapPoint = (nx, ny) => mapVideoToCanvas(nx, ny, videoW, videoH, Canvas.width, Canvas.height);
-  for (const face of faces) {
-    const geo = computeFaceGeometry(computeFacePoints(face.landmarks, mapPoint));
-    drawFaceBlush(ctx, geo);
-  }
-}
-
-// Maps a normalized face-landmark point (video space) into the FINAL,
-// already-mirrored local pixel space of a capturePhoto()-style cropped
-// canvas -- different math from mapVideoToCanvas (which assumes the
-// *whole* video is cover-fit onto a full-size canvas): here a specific
-// video-space sub-rectangle (srcX/Y/W/H) is stretched directly to fill
-// destW/destH, then mirrored, matching capturePhoto's own draw exactly.
-// Only blush needs this now -- the capture smoother works straight off
-// srcX/Y/W/H, no per-face remapping.
-function mapVideoPointToCroppedCanvas(nx, ny, videoW, videoH, srcX, srcY, srcW, srcH, destW, destH) {
-  const videoPxX = nx * videoW;
-  const videoPxY = ny * videoH;
-  const u = (videoPxX - srcX) / srcW;
-  const v = (videoPxY - srcY) / srcH;
-  return { x: (1 - u) * destW, y: v * destH };
-}
-
-// Capture-bake pass: draws whichever face effects are currently toggled
-// on, on top of an already-drawn, already-restored sharp photoCanvas.
-function drawFaceEffectsOnCapture(pctx, video, style, videoW, videoH, srcX, srcY, srcW, srcH, destW, destH, nowMs) {
-  if (SkinSmootherState.enabled) {
-    drawSkinSmootherCapture(pctx, video, style, srcX, srcY, srcW, srcH, destW, destH);
-  }
-  // Same "No Filter" gate as the live preview (drawFaceEffects) -- keeps
-  // the baked photo consistent with what was actually shown on screen.
-  if (!BlushState.enabled || style.filter !== "none") return;
-
-  const faces = FaceTracker.detect(video, nowMs);
-  if (faces.length === 0) return;
-
-  const mapPoint = (nx, ny) => mapVideoPointToCroppedCanvas(nx, ny, videoW, videoH, srcX, srcY, srcW, srcH, destW, destH);
-  for (const face of faces) {
-    const geo = computeFaceGeometry(computeFacePoints(face.landmarks, mapPoint));
-    drawFaceBlush(pctx, geo);
-  }
 }
 // -------------------------------------------------------------------------
 
@@ -2064,7 +1912,6 @@ const BeautyPicker = {
     this.dwellTracker = createDwellTracker();
     this.buttons = [
       { key: "smoother", el: document.getElementById("skin-smoother-toggle") },
-      { key: "blush", el: document.getElementById("blush-toggle") },
     ];
     for (const btn of this.buttons) {
       const ring = document.createElement("span");
@@ -2077,7 +1924,7 @@ const BeautyPicker = {
   },
 
   _stateFor(key) {
-    return key === "smoother" ? SkinSmootherState : BlushState;
+    return SkinSmootherState;
   },
 
   toggle(key) {
@@ -2227,7 +2074,6 @@ function mainLoop(nowMs) {
   const video = Webcam.videoEl;
   const videoReady = video && video.readyState >= 2 && video.videoWidth;
   const hands = videoReady ? HandTracker.detect(video, nowMs) : [];
-  const faces = videoReady ? FaceTracker.detect(video, nowMs) : [];
   const videoW = video?.videoWidth || 0;
   const videoH = video?.videoHeight || 0;
 
@@ -2259,10 +2105,9 @@ function mainLoop(nowMs) {
   PatternPicker.updateDwell(nowMs, hands, videoW, videoH);
   BeautyPicker.updateDwell(nowMs, hands, videoW, videoH);
 
-  // Face beauty filters -- every detected face, full camera feed,
-  // independent of the hand-frame rectangle below (a no-op draw when both
-  // toggles are off).
-  drawFaceEffects(video, videoW, videoH, faces);
+  // Skin smoother -- full camera feed, independent of the hand-frame
+  // rectangle below (a no-op draw when the toggle is off).
+  if (videoReady) drawFaceEffects(video, videoW, videoH);
 
   const rightHand = hands.find((h) => h.handedness === "Right") || null;
   const leftHand = hands.find((h) => h.handedness === "Left") || null;
@@ -2344,7 +2189,7 @@ function mainLoop(nowMs) {
     drawCountdownNumber(x, y, w, h, nowMs);
 
     if (nowMs - CaptureState.countdownStartMs >= COUNTDOWN_SECONDS * 1000) {
-      CaptureState.pendingPhoto = capturePhoto(video, videoW, videoH, x, y, w, h, nowMs);
+      CaptureState.pendingPhoto = capturePhoto(video, videoW, videoH, x, y, w, h);
       CaptureState.phase = "flash";
       CaptureState.flashStartMs = nowMs;
     }
@@ -2386,8 +2231,13 @@ async function init() {
   PhotoPreview.init();
   HelpModal.init();
   HelpModal.open();
-  await Promise.all([Webcam.init(), HandTracker.init(), FaceTracker.init()]);
+  // Start the render loop as soon as the camera is up -- the hand model
+  // is a multi-MB download plus WASM/GPU warm-up, and HandTracker.detect
+  // already no-ops until it's ready, so the live video and the toolbar
+  // don't have to sit frozen behind it.
   requestAnimationFrame(mainLoop);
+  Webcam.init();
+  HandTracker.init();
 }
 
 init();
