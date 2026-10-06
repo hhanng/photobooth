@@ -9,7 +9,10 @@
        time script.js/style.css change, or returning visitors' browsers
        can silently keep serving an old cached copy for up to 10 minutes
        (or longer, depending on the browser) after a new deploy. -->
-  <link rel="stylesheet" href="style.css?v=33" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="preconnect" href="https://storage.googleapis.com" crossorigin />
+  <link rel="preload" href="https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task" as="fetch" crossorigin />
+  <link rel="stylesheet" href="style.css?v=34" />
 </head>
 <body>
   <video id="webcam-video" autoplay muted playsinline></video>
@@ -19,7 +22,6 @@
     <span id="brand">photobooth</span>
     <span class="status-pill" id="webcam-status">webcam: idle</span>
     <span class="status-pill" id="hand-status">hand: idle</span>
-    <span class="status-pill" id="face-status">face: idle</span>
   </div>
 
   <div id="photo-strip" aria-label="Photo strip"></div>
@@ -47,17 +49,14 @@
        available or didn't succeed. -->
   <div id="save-toast" role="status" hidden></div>
 
-  <!-- Right-edge toolbar: face beauty filter toggles above the strip
+  <!-- Right-edge toolbar: skin smoother toggle above the strip
        pattern swatches, one vertically-centered column. Both groups use
        the same circular-swatch look and the same click/dwell interaction
        (see BeautyPicker / PatternPicker in script.js). -->
   <div id="right-toolbar" aria-label="Camera effects">
     <div id="beauty-picker" aria-label="Face beauty filters">
-      <button id="skin-smoother-toggle" type="button" class="pattern-swatch beauty-toggle" aria-pressed="false" title="Skin smoother -- softens detected faces' skin (select again to turn off)">
+      <button id="skin-smoother-toggle" type="button" class="pattern-swatch beauty-toggle" aria-pressed="false" title="Skin smoother -- softens the whole picture slightly (select again to turn off)">
         <span class="beauty-toggle-label">Smooth</span>
-      </button>
-      <button id="blush-toggle" type="button" class="pattern-swatch beauty-toggle" aria-pressed="false" title="Blush -- adds cheek color to detected faces (select again to turn off)">
-        <span class="beauty-toggle-label">Blush</span>
       </button>
     </div>
     <div id="right-toolbar-divider"></div>
@@ -165,6 +164,6 @@
        without needing to complete a pinch. -->
   <button id="size-gesture-cancel" type="button" class="btn-secondary size-gesture-cancel-btn" hidden>Cancel</button>
 
-  <script src="script.js?v=33" type="module"></script>
+  <script src="script.js?v=34" type="module"></script>
 </body>
 </html>
